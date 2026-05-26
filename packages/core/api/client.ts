@@ -18,6 +18,8 @@ import type {
   CreateAgentFromTemplateRequest,
   CreateAgentFromTemplateResponse,
   UpdateAgentRequest,
+  AgentEnvResponse,
+  UpdateAgentEnvRequest,
   AgentTask,
   AgentActivityBucket,
   AgentRunCount,
@@ -133,6 +135,8 @@ import {
   EMPTY_CREATE_AGENT_FROM_TEMPLATE_RESPONSE,
   EMPTY_GROUPED_ISSUES_RESPONSE,
   EMPTY_LIST_ISSUES_RESPONSE,
+  EMPTY_SQUAD,
+  EMPTY_SQUAD_LIST,
   EMPTY_SQUAD_MEMBER_STATUS_LIST,
   EMPTY_TIMELINE_ENTRIES,
   EMPTY_USER,
@@ -141,12 +145,12 @@ import {
   GroupedIssuesResponseSchema,
   ListIssuesResponseSchema,
   ListWebhookDeliveriesResponseSchema,
-  OnboardingNoRuntimeBootstrapResponseSchema,
-  OnboardingRuntimeBootstrapResponseSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
+  SquadSchema,
+  SquadListSchema,
   SquadMemberStatusListResponseSchema,
   SubscribersListSchema,
   TimelineEntriesSchema,
@@ -178,30 +182,6 @@ export interface LoginResponse {
   token: string;
   user: User;
 }
-
-export interface OnboardingRuntimeBootstrapResponse {
-  workspace_id: string;
-  agent_id: string;
-  issue_id: string;
-}
-
-const EMPTY_ONBOARDING_RUNTIME_BOOTSTRAP_RESPONSE:
-  OnboardingRuntimeBootstrapResponse = {
-  workspace_id: "",
-  agent_id: "",
-  issue_id: "",
-};
-
-export interface OnboardingNoRuntimeBootstrapResponse {
-  workspace_id: string;
-  issue_id: string;
-}
-
-const EMPTY_ONBOARDING_NO_RUNTIME_BOOTSTRAP_RESPONSE:
-  OnboardingNoRuntimeBootstrapResponse = {
-  workspace_id: "",
-  issue_id: "",
-};
 
 export class ApiError extends Error {
   readonly status: number;
@@ -422,43 +402,6 @@ export class ApiClient {
     return parseWithFallback(raw, UserSchema, EMPTY_USER, {
       endpoint: "POST /api/me/onboarding/complete",
     });
-  }
-
-  async bootstrapOnboardingRuntime(payload: {
-    workspace_id: string;
-    runtime_id: string;
-  }): Promise<OnboardingRuntimeBootstrapResponse> {
-    const raw = await this.fetch<unknown>(
-      "/api/me/onboarding/runtime-bootstrap",
-      {
-        method: "POST",
-        body: JSON.stringify(payload),
-      },
-    );
-    return parseWithFallback(
-      raw,
-      OnboardingRuntimeBootstrapResponseSchema,
-      EMPTY_ONBOARDING_RUNTIME_BOOTSTRAP_RESPONSE,
-      { endpoint: "POST /api/me/onboarding/runtime-bootstrap" },
-    );
-  }
-
-  async bootstrapOnboardingNoRuntime(payload: {
-    workspace_id: string;
-  }): Promise<OnboardingNoRuntimeBootstrapResponse> {
-    const raw = await this.fetch<unknown>(
-      "/api/me/onboarding/no-runtime-bootstrap",
-      {
-        method: "POST",
-        body: JSON.stringify(payload),
-      },
-    );
-    return parseWithFallback(
-      raw,
-      OnboardingNoRuntimeBootstrapResponseSchema,
-      EMPTY_ONBOARDING_NO_RUNTIME_BOOTSTRAP_RESPONSE,
-      { endpoint: "POST /api/me/onboarding/no-runtime-bootstrap" },
-    );
   }
 
   async joinCloudWaitlist(payload: {
@@ -824,6 +767,31 @@ export class ApiClient {
     return this.fetch(`/api/agents/${id}/archive`, { method: "POST" });
   }
 
+  /**
+   * Returns the plaintext `custom_env` map for an agent. Owner/admin
+   * only; calls from agent-actor sessions get a 403. Every successful
+   * call writes an `agent_env_revealed` activity_log row server-side.
+   * MUL-2600.
+   */
+  async getAgentEnv(id: string): Promise<AgentEnvResponse> {
+    return this.fetch(`/api/agents/${id}/env`);
+  }
+
+  /**
+   * Replaces an agent's `custom_env` wholesale. Values equal to
+   * `"****"` are preserved server-side (the **** guard) so a partial
+   * UI edit doesn't overwrite real secrets with the masked
+   * placeholder. Owner/admin only; agent actors get a 403. Every
+   * successful call writes an `agent_env_updated` activity_log row.
+   * MUL-2600.
+   */
+  async updateAgentEnv(id: string, data: UpdateAgentEnvRequest): Promise<AgentEnvResponse> {
+    return this.fetch(`/api/agents/${id}/env`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
   async restoreAgent(id: string): Promise<Agent> {
     return this.fetch(`/api/agents/${id}/restore`, { method: "POST" });
   }
@@ -878,10 +846,10 @@ export class ApiClient {
     );
   }
 
-  async deleteCloudRuntimeNode(nodeId: string): Promise<void> {
+  async deleteCloudRuntimeNode(instanceId: string): Promise<void> {
     await this.fetchRaw("/api/cloud-runtime/nodes", {
       method: "DELETE",
-      body: JSON.stringify({ id: nodeId }),
+      body: JSON.stringify({ instance_id: instanceId }),
       extraHeaders: { "Content-Type": "application/json" },
     });
   }
@@ -1653,19 +1621,31 @@ export class ApiClient {
 
   // Squads
   async listSquads(): Promise<Squad[]> {
-    return this.fetch(`/api/squads`);
+    const raw = await this.fetch<unknown>(`/api/squads`);
+    return parseWithFallback(raw, SquadListSchema, EMPTY_SQUAD_LIST, {
+      endpoint: "GET /api/squads",
+    }) as Squad[];
   }
 
   async getSquad(id: string): Promise<Squad> {
-    return this.fetch(`/api/squads/${id}`);
+    const raw = await this.fetch<unknown>(`/api/squads/${id}`);
+    return parseWithFallback(raw, SquadSchema, EMPTY_SQUAD, {
+      endpoint: "GET /api/squads/:id",
+    }) as Squad;
   }
 
   async createSquad(data: { name: string; description?: string; leader_id: string; avatar_url?: string }): Promise<Squad> {
-    return this.fetch("/api/squads", { method: "POST", body: JSON.stringify(data) });
+    const raw = await this.fetch<unknown>("/api/squads", { method: "POST", body: JSON.stringify(data) });
+    return parseWithFallback(raw, SquadSchema, EMPTY_SQUAD, {
+      endpoint: "POST /api/squads",
+    }) as Squad;
   }
 
   async updateSquad(id: string, data: { name?: string; description?: string; instructions?: string; leader_id?: string; avatar_url?: string }): Promise<Squad> {
-    return this.fetch(`/api/squads/${id}`, { method: "PUT", body: JSON.stringify(data) });
+    const raw = await this.fetch<unknown>(`/api/squads/${id}`, { method: "PUT", body: JSON.stringify(data) });
+    return parseWithFallback(raw, SquadSchema, EMPTY_SQUAD, {
+      endpoint: "PUT /api/squads/:id",
+    }) as Squad;
   }
 
   async deleteSquad(id: string): Promise<void> {
