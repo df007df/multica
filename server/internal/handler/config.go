@@ -12,8 +12,15 @@ type AppConfig struct {
 	// Public auth config consumed by the web app at runtime so self-hosted
 	// deployments do not need to rebuild the frontend image when operators
 	// toggle signup or wire Google OAuth.
-	AllowSignup    bool   `json:"allow_signup"`
-	GoogleClientID string `json:"google_client_id,omitempty"`
+	AllowSignup       bool   `json:"allow_signup"`
+	GoogleClientID    string `json:"google_client_id,omitempty"`
+	DingTalkClientID  string `json:"dingtalk_client_id,omitempty"`
+
+	// GitHub App enabled (true when both GITHUB_APP_SLUG and GITHUB_WEBHOOK_SECRET are set).
+	GitHubEnabled bool `json:"github_enabled"`
+
+	// Gitee OAuth enabled (true when both GITEE_CLIENT_ID and GITEE_CLIENT_SECRET are set).
+	GiteeEnabled bool `json:"gitee_enabled"`
 
 	// PostHog public config for the frontend. The key is the same Project
 	// API Key the backend uses; returning it here (instead of baking it
@@ -31,8 +38,11 @@ type AppConfig struct {
 // to anonymous callers — never user- or tenant-scoped data.
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	config := AppConfig{
-		AllowSignup:    os.Getenv("ALLOW_SIGNUP") != "false",
-		GoogleClientID: os.Getenv("GOOGLE_CLIENT_ID"),
+		AllowSignup:      os.Getenv("ALLOW_SIGNUP") != "false",
+		GoogleClientID:   os.Getenv("GOOGLE_CLIENT_ID"),
+		DingTalkClientID: os.Getenv("DINGTALK_CLIENT_ID"),
+		GitHubEnabled:    os.Getenv("GITHUB_APP_SLUG") != "" && os.Getenv("GITHUB_WEBHOOK_SECRET") != "",
+		GiteeEnabled:     os.Getenv("GITEE_CLIENT_ID") != "" && os.Getenv("GITEE_CLIENT_SECRET") != "",
 	}
 	if h.Storage != nil {
 		config.CdnDomain = h.Storage.CdnDomain()

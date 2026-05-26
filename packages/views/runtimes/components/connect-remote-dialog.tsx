@@ -23,11 +23,38 @@ type Step = "instructions" | "success";
 
 const INSTALL_CMD =
   "curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash";
-const SETUP_CMD = "multica setup";
-const TOKEN_CMD = `multica config set server_url https://api.multica.ai
-multica config set app_url https://multica.ai
+
+function getServerUrl() {
+  if (typeof window === "undefined") return "https://api.multica.ai";
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local"))
+    return "https://api.multica.ai";
+  return window.location.origin;
+}
+
+function getAppUrl() {
+  if (typeof window === "undefined") return "https://multica.ai";
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local"))
+    return "https://multica.ai";
+  return window.location.origin;
+}
+
+function getSetupCmd() {
+  const serverUrl = getServerUrl();
+  const appUrl = getAppUrl();
+  if (serverUrl === "https://api.multica.ai") return "multica setup";
+  return `multica setup self-host --server-url ${serverUrl} --app-url ${appUrl}`;
+}
+
+function getTokenCmd() {
+  const serverUrl = getServerUrl();
+  const appUrl = getAppUrl();
+  return `multica config set server_url ${serverUrl}
+multica config set app_url ${appUrl}
 multica login --token <YOUR_TOKEN>
 multica daemon start`;
+}
 
 export function ConnectRemoteDialog({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<Step>("instructions");
@@ -181,7 +208,7 @@ function InstructionsStep({ onClose }: { onClose: () => void }) {
             <CommandStep
               n={2}
               label={t(($) => $.connect.step2_label)}
-              cmd={SETUP_CMD}
+              cmd={getSetupCmd()}
               copyAria={t(($) => $.connect.copy_aria)}
             />
             <p className="mt-1.5 text-[11px] leading-[1.55] text-muted-foreground">
@@ -220,7 +247,7 @@ function TroubleshootingDetails() {
         <CommandStep
           n={2}
           label={t(($) => $.connect.step2_label)}
-          cmd={TOKEN_CMD}
+          cmd={getTokenCmd()}
           copyAria={t(($) => $.connect.copy_aria)}
         />
         <p>

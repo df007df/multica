@@ -20,13 +20,14 @@ type InvitationResponse struct {
 	ID            string  `json:"id"`
 	WorkspaceID   string  `json:"workspace_id"`
 	InviterID     string  `json:"inviter_id"`
-	InviteeEmail  string  `json:"invitee_email"`
+	InviteeEmail  *string `json:"invitee_email"`
 	InviteeUserID *string `json:"invitee_user_id"`
 	Role          string  `json:"role"`
 	Status        string  `json:"status"`
 	CreatedAt     string  `json:"created_at"`
 	UpdatedAt     string  `json:"updated_at"`
 	ExpiresAt     string  `json:"expires_at"`
+	InviteType    string  `json:"invite_type"`
 	// Enriched fields (present in list responses).
 	InviterName   string `json:"inviter_name,omitempty"`
 	InviterEmail  string `json:"inviter_email,omitempty"`
@@ -38,13 +39,14 @@ func invitationToResponse(inv db.WorkspaceInvitation) InvitationResponse {
 		ID:            uuidToString(inv.ID),
 		WorkspaceID:   uuidToString(inv.WorkspaceID),
 		InviterID:     uuidToString(inv.InviterID),
-		InviteeEmail:  inv.InviteeEmail,
+		InviteeEmail:  textToPtr(inv.InviteeEmail),
 		InviteeUserID: uuidToPtr(inv.InviteeUserID),
 		Role:          inv.Role,
 		Status:        inv.Status,
 		CreatedAt:     timestampToString(inv.CreatedAt),
 		UpdatedAt:     timestampToString(inv.UpdatedAt),
 		ExpiresAt:     timestampToString(inv.ExpiresAt),
+		InviteType:    inv.InviteType,
 	}
 }
 
@@ -52,6 +54,12 @@ func invitationToResponse(inv db.WorkspaceInvitation) InvitationResponse {
 // CreateInvitation replaces the old "instant-add" CreateMember flow.
 // POST /api/workspaces/{id}/members  (same endpoint, new behaviour)
 // ---------------------------------------------------------------------------
+
+// isLinkInvitation returns true when the invitation is a shareable link
+// (any authenticated user can accept it, no email matching required).
+func isLinkInvitation(inv db.WorkspaceInvitation) bool {
+	return inv.InviteType == "link"
+}
 
 func (h *Handler) CreateInvitation(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
@@ -100,7 +108,7 @@ func (h *Handler) CreateInvitation(w http.ResponseWriter, r *http.Request) {
 	// stale row would otherwise block CreateInvitation below — see issue #2055.
 	if err := h.Queries.ExpireStalePendingInvitations(r.Context(), db.ExpireStalePendingInvitationsParams{
 		WorkspaceID:  requester.WorkspaceID,
-		InviteeEmail: email,
+		InviteeEmail: strToText(email),
 	}); err != nil {
 		slog.Warn("expire stale invitations failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID, "email", email)...)
 		writeError(w, http.StatusInternalServerError, "failed to create invitation")
@@ -110,7 +118,7 @@ func (h *Handler) CreateInvitation(w http.ResponseWriter, r *http.Request) {
 	// Check if there is still a live pending invitation.
 	_, err = h.Queries.GetPendingInvitationByEmail(r.Context(), db.GetPendingInvitationByEmailParams{
 		WorkspaceID:  requester.WorkspaceID,
-		InviteeEmail: email,
+		InviteeEmail: strToText(email),
 	})
 	if err == nil {
 		writeError(w, http.StatusConflict, "invitation already pending for this email")
@@ -126,7 +134,7 @@ func (h *Handler) CreateInvitation(w http.ResponseWriter, r *http.Request) {
 	inv, err := h.Queries.CreateInvitation(r.Context(), db.CreateInvitationParams{
 		WorkspaceID:   requester.WorkspaceID,
 		InviterID:     requester.UserID,
-		InviteeEmail:  email,
+		InviteeEmail:  strToText(email),
 		InviteeUserID: inviteeUserID,
 		Role:          role,
 	})
@@ -179,6 +187,48 @@ func (h *Handler) CreateInvitation(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
+// CreateInvitationLink — generate a shareable invitation link (no email).
+// POST /api/workspaces/{id}/invitation-link
+// ---------------------------------------------------------------------------
+
+func (h *Handler) CreateInvitationLink(w http.ResponseWriter, r *http.Request) {
+	workspaceID := workspaceIDFromURL(r, "id")
+	requester, ok := h.workspaceMember(w, r, workspaceID)
+	if !ok {
+		return
+	}
+
+	role := "member"
+
+	inv, err := h.Queries.CreateInvitationLink(r.Context(), db.CreateInvitationLinkParams{
+		WorkspaceID: requester.WorkspaceID,
+		InviterID:   requester.UserID,
+		Role:        role,
+	})
+	if err != nil {
+		slog.Warn("create invitation link failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
+		writeError(w, http.StatusInternalServerError, "failed to create invitation link")
+		return
+	}
+
+	slog.Info("invitation link created", append(logger.RequestAttrs(r), "invitation_id", uuidToString(inv.ID), "workspace_id", workspaceID)...)
+
+	resp := invitationToResponse(inv)
+
+	userID := requestUserID(r)
+	var workspaceName string
+	if ws, err := h.Queries.GetWorkspace(r.Context(), requester.WorkspaceID); err == nil {
+		workspaceName = ws.Name
+	}
+	h.publish(protocol.EventInvitationCreated, uuidToString(requester.WorkspaceID), "member", userID, map[string]any{
+		"invitation":     resp,
+		"workspace_name": workspaceName,
+	})
+
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+// ---------------------------------------------------------------------------
 // ListWorkspaceInvitations — pending invitations for a workspace (admin view).
 // GET /api/workspaces/{id}/invitations
 // ---------------------------------------------------------------------------
@@ -202,13 +252,14 @@ func (h *Handler) ListWorkspaceInvitations(w http.ResponseWriter, r *http.Reques
 			ID:            uuidToString(row.ID),
 			WorkspaceID:   uuidToString(row.WorkspaceID),
 			InviterID:     uuidToString(row.InviterID),
-			InviteeEmail:  row.InviteeEmail,
+			InviteeEmail:  textToPtr(row.InviteeEmail),
 			InviteeUserID: uuidToPtr(row.InviteeUserID),
 			Role:          row.Role,
 			Status:        row.Status,
 			CreatedAt:     timestampToString(row.CreatedAt),
 			UpdatedAt:     timestampToString(row.UpdatedAt),
 			ExpiresAt:     timestampToString(row.ExpiresAt),
+			InviteType:    row.InviteType,
 			InviterName:   row.InviterName,
 			InviterEmail:  row.InviterEmail,
 		}
@@ -250,7 +301,7 @@ func (h *Handler) RevokeInvitation(w http.ResponseWriter, r *http.Request) {
 	userID := requestUserID(r)
 	h.publish(protocol.EventInvitationRevoked, uuidToString(workspaceUUID), "member", userID, map[string]any{
 		"invitation_id":   uuidToString(inv.ID),
-		"invitee_email":   inv.InviteeEmail,
+		"invitee_email":   inv.InviteeEmail.String,
 		"invitee_user_id": uuidToPtr(inv.InviteeUserID),
 	})
 
@@ -279,15 +330,18 @@ func (h *Handler) GetMyInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the invitation belongs to the current user.
-	user, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load user")
-		return
-	}
-	if strings.ToLower(user.Email) != inv.InviteeEmail && uuidToString(inv.InviteeUserID) != userID {
-		writeError(w, http.StatusForbidden, "invitation does not belong to you")
-		return
+	// Link invitations are open to any authenticated user.
+	// Email invitations require matching email or pre-set invitee_user_id.
+	if !isLinkInvitation(inv) {
+		user, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load user")
+			return
+		}
+		if strings.ToLower(user.Email) != inv.InviteeEmail.String && uuidToString(inv.InviteeUserID) != userID {
+			writeError(w, http.StatusForbidden, "invitation does not belong to you")
+			return
+		}
 	}
 
 	resp := invitationToResponse(inv)
@@ -323,7 +377,7 @@ func (h *Handler) ListMyInvitations(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.Queries.ListPendingInvitationsForUser(r.Context(), db.ListPendingInvitationsForUserParams{
 		InviteeUserID: user.ID,
-		InviteeEmail:  user.Email,
+		InviteeEmail:  ptrToText(&user.Email),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list invitations")
@@ -336,13 +390,14 @@ func (h *Handler) ListMyInvitations(w http.ResponseWriter, r *http.Request) {
 			ID:            uuidToString(row.ID),
 			WorkspaceID:   uuidToString(row.WorkspaceID),
 			InviterID:     uuidToString(row.InviterID),
-			InviteeEmail:  row.InviteeEmail,
+			InviteeEmail:  textToPtr(row.InviteeEmail),
 			InviteeUserID: uuidToPtr(row.InviteeUserID),
 			Role:          row.Role,
 			Status:        row.Status,
 			CreatedAt:     timestampToString(row.CreatedAt),
 			UpdatedAt:     timestampToString(row.UpdatedAt),
 			ExpiresAt:     timestampToString(row.ExpiresAt),
+			InviteType:    row.InviteType,
 			WorkspaceName: row.WorkspaceName,
 			InviterName:   row.InviterName,
 			InviterEmail:  row.InviterEmail,
@@ -374,15 +429,19 @@ func (h *Handler) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the invitation belongs to the current user.
+	// Load user first (needed for both link and email flows).
 	user, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load user")
 		return
 	}
-	if strings.ToLower(user.Email) != inv.InviteeEmail && uuidToString(inv.InviteeUserID) != userID {
-		writeError(w, http.StatusForbidden, "invitation does not belong to you")
-		return
+	// Link invitations are open to any authenticated user.
+	// Email invitations require matching email or pre-set invitee_user_id.
+	if !isLinkInvitation(inv) {
+		if strings.ToLower(user.Email) != inv.InviteeEmail.String && uuidToString(inv.InviteeUserID) != userID {
+			writeError(w, http.StatusForbidden, "invitation does not belong to you")
+			return
+		}
 	}
 
 	if inv.Status != "pending" {
@@ -544,15 +603,19 @@ func (h *Handler) DeclineInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the invitation belongs to the current user.
+	// Load user first (needed for both link and email flows).
 	user, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load user")
 		return
 	}
-	if strings.ToLower(user.Email) != inv.InviteeEmail && uuidToString(inv.InviteeUserID) != userID {
-		writeError(w, http.StatusForbidden, "invitation does not belong to you")
-		return
+	// Link invitations are open to any authenticated user.
+	// Email invitations require matching email or pre-set invitee_user_id.
+	if !isLinkInvitation(inv) {
+		if strings.ToLower(user.Email) != inv.InviteeEmail.String && uuidToString(inv.InviteeUserID) != userID {
+			writeError(w, http.StatusForbidden, "invitation does not belong to you")
+			return
+		}
 	}
 
 	if inv.Status != "pending" {
@@ -571,7 +634,7 @@ func (h *Handler) DeclineInvitation(w http.ResponseWriter, r *http.Request) {
 	wsID := uuidToString(declined.WorkspaceID)
 	h.publish(protocol.EventInvitationDeclined, wsID, "member", userID, map[string]any{
 		"invitation_id": uuidToString(declined.ID),
-		"invitee_email": declined.InviteeEmail,
+		"invitee_email": declined.InviteeEmail.String,
 	})
 
 	w.WriteHeader(http.StatusNoContent)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Crown, Shield, User, Plus, MoreHorizontal, UserMinus, Users, Clock, X, Mail } from "lucide-react";
+import { Crown, Shield, User, Plus, MoreHorizontal, UserMinus, Users, Clock, X, Mail, Link } from "lucide-react";
 import { ActorAvatar } from "../../common/actor-avatar";
 import type { MemberWithUser, MemberRole, Invitation } from "@multica/core/types";
 import { Input } from "@multica/ui/components/ui/input";
@@ -239,6 +239,7 @@ export function MembersTab() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<MemberRole>("member");
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [linkLoading, setLinkLoading] = useState(false);
   const [memberActionId, setMemberActionId] = useState<string | null>(null);
   const [invitationActionId, setInvitationActionId] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
@@ -272,6 +273,22 @@ export function MembersTab() {
     }
   };
 
+
+  const handleCreateInviteLink = async () => {
+    if (!workspace) return;
+    setLinkLoading(true);
+    try {
+      const inv = await api.createInvitationLink(workspace.id);
+      const link = `${window.location.origin}/invite/${inv.id}`;
+      await navigator.clipboard.writeText(link);
+      qc.invalidateQueries({ queryKey: workspaceKeys.invitations(wsId) });
+      toast.success(t(($) => $.members.toast_link_copied));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t(($) => $.members.toast_link_failed));
+    } finally {
+      setLinkLoading(false);
+    }
+  };
   const handleRevokeInvitation = (invitation: Invitation) => {
     if (!workspace) return;
     setConfirmAction({
@@ -371,6 +388,22 @@ export function MembersTab() {
                   {inviteLoading ? t(($) => $.members.inviting) : t(($) => $.members.invite_button)}
                 </Button>
               </div>
+              <div className="flex items-center gap-3 pt-1">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs text-muted-foreground">{t(($) => $.members.or)}</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={handleCreateInviteLink}
+                disabled={linkLoading}
+              >
+                <Link className="h-3.5 w-3.5" />
+                {linkLoading
+                  ? t(($) => $.members.generating_link)
+                  : t(($) => $.members.copy_invite_link)}
+              </Button>
             </CardContent>
           </Card>
         )}

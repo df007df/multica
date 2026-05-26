@@ -22,6 +22,7 @@ function CallbackContent() {
   const searchParams = useSearchParams();
   const qc = useQueryClient();
   const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
+  const loginWithDingTalk = useAuthStore((s) => s.loginWithDingTalk);
   const [error, setError] = useState("");
   const [desktopToken, setDesktopToken] = useState<string | null>(null);
 
@@ -41,6 +42,7 @@ function CallbackContent() {
     const state = searchParams.get("state") || "";
     const stateParts = state.split(",");
     const isDesktop = stateParts.includes("platform:desktop");
+    const isDingTalk = stateParts.includes("provider:dingtalk");
     const nextPart = stateParts.find((p) => p.startsWith("next:"));
     // Strip "next:" prefix, then drop anything that isn't a safe relative path
     // so an attacker-controlled `state=next:https://evil` cannot redirect here.
@@ -48,10 +50,14 @@ function CallbackContent() {
 
     const redirectUri = `${window.location.origin}/auth/callback`;
 
+    const loginFn = isDingTalk ? loginWithDingTalk : loginWithGoogle;
+
     if (isDesktop) {
       // Desktop flow: exchange code for token, then redirect via deep link
-      api
-        .googleLogin(code, redirectUri)
+      const apiLogin = isDingTalk
+        ? (c: string, r: string) => api.dingtalkLogin(c, r)
+        : (c: string, r: string) => api.googleLogin(c, r);
+      apiLogin(code, redirectUri)
         .then(({ token }) => {
           setDesktopToken(token);
           window.location.href = `multica://auth/callback?token=${encodeURIComponent(token)}`;
@@ -61,27 +67,17 @@ function CallbackContent() {
         });
     } else {
       // Normal web flow
-      loginWithGoogle(code, redirectUri)
+      loginFn(code, redirectUri)
         .then(async (loggedInUser) => {
           const wsList = await api.listWorkspaces();
           qc.setQueryData(workspaceKeys.list(), wsList);
           const onboarded = loggedInUser.onboarded_at != null;
 
-          // 1. nextUrl wins: a `next=/invite/<id>` always survives the OAuth
-          //    round-trip — the user clicked a specific link and we should
-          //    honor exactly that destination.
           if (nextUrl) {
             router.push(nextUrl);
             return;
           }
 
-          // 2. Un-onboarded users may have pending invitations on their
-          //    email even when no `next=` was carried (came from a fresh
-          //    login on app.multica.ai instead of clicking the email link,
-          //    or `state` was lost across the round-trip). Look them up by
-          //    email and route to the batch /invitations page if any.
-          //    Already-onboarded users skip this lookup — their new invites
-          //    surface in the sidebar dropdown, not as a forced wall.
           if (!onboarded) {
             try {
               const invites = await api.listMyInvitations();
@@ -91,23 +87,17 @@ function CallbackContent() {
                 return;
               }
             } catch {
-              // Network blip on the invite lookup is non-fatal — fall through
-              // to the normal post-auth destination so the user isn't stuck
-              // on a blank callback screen. Worst case they land on
-              // /onboarding and the sidebar will surface invites later.
+              // Non-fatal
             }
           }
 
-          // 3. Default: hand off to the resolver (onboarding for first-timers,
-          //    first workspace for returning users, /workspaces/new for
-          //    onboarded users with zero workspaces).
           router.push(resolvePostAuthDestination(wsList, onboarded));
         })
         .catch((err) => {
           setError(err instanceof Error ? err.message : "Login failed");
         });
     }
-  }, [searchParams, loginWithGoogle, router, qc]);
+  }, [searchParams, loginWithGoogle, loginWithDingTalk, router, qc]);
 
   if (desktopToken) {
     return (

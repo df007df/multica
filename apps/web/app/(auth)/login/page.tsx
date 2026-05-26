@@ -24,6 +24,7 @@ import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { captureDownloadIntent } from "@multica/core/analytics";
 import { setLoggedInCookie } from "@/features/auth/auth-cookie";
+import Image from "next/image";
 import Link from "next/link";
 import { LoginPage, validateCliCallback } from "@multica/views/auth";
 import { useT } from "@multica/views/i18n";
@@ -59,6 +60,7 @@ function LoginPageContent() {
   const qc = useQueryClient();
   const { t } = useT("auth");
   const googleClientId = useConfigStore((state) => state.googleClientId);
+  const dingtalkClientId = useConfigStore((state) => state.dingtalkClientId);
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
   const searchParams = useSearchParams();
@@ -129,6 +131,15 @@ function LoginPageContent() {
   // Build Google OAuth state: encode platform + next URL so the callback
   // can redirect to the right place after login.
   const googleState = [
+    "provider:google",
+    platform === "desktop" ? "platform:desktop" : "",
+    nextUrl ? `next:${nextUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join(",") || undefined;
+
+  const dingtalkState = [
+    "provider:dingtalk",
     platform === "desktop" ? "platform:desktop" : "",
     nextUrl ? `next:${nextUrl}` : "",
   ]
@@ -187,6 +198,17 @@ function LoginPageContent() {
 
   return (
     <LoginPage
+      logo={
+        <Image
+          src="/mofaAI.png"
+          alt="魔法笔记"
+          width={64}
+          height={64}
+          className="rounded-2xl"
+          priority
+        />
+      }
+      hideEmail
       onSuccess={handleSuccess}
       google={
         googleClientId
@@ -194,6 +216,15 @@ function LoginPageContent() {
               clientId: googleClientId,
               redirectUri: `${window.location.origin}/auth/callback`,
               state: googleState,
+            }
+          : undefined
+      }
+      dingtalk={
+        dingtalkClientId
+          ? {
+              clientId: dingtalkClientId,
+              redirectUri: `${window.location.origin}/auth/callback`,
+              state: dingtalkState,
             }
           : undefined
       }

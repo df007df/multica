@@ -190,6 +190,81 @@ func (h *Handler) findOrCreateUser(ctx context.Context, email string) (user db.U
 	return created, true, nil
 }
 
+// findOrCreateUserByDingTalk looks up a user by dingtalk_id first, then by
+// email (if DingTalk provides one). If neither exists, creates a new user.
+// dingtalk_id is stored on creation and used for subsequent lookups.
+func (h *Handler) findOrCreateUserByDingTalk(ctx context.Context, dingtalkID, email, nick string) (user db.User, isNew bool, err error) {
+	// 1. Try by dingtalk_id
+	if dingtalkID != "" {
+		user, err = h.Queries.GetUserByDingTalkID(ctx, pgtype.Text{String: dingtalkID, Valid: true})
+		if err == nil {
+			return user, false, nil
+		}
+		if !isNotFound(err) {
+			return db.User{}, false, err
+		}
+	}
+
+	// 2. Try by email (if DingTalk provides one)
+	if email != "" {
+		user, err = h.Queries.GetUserByEmail(ctx, email)
+		if err == nil {
+			// Existing user by email — link dingtalk_id for future logins
+			if dingtalkID != "" && !user.DingtalkID.Valid {
+				updated, linkErr := h.Queries.LinkDingTalkID(ctx, db.LinkDingTalkIDParams{
+					ID:         user.ID,
+					DingtalkID: pgtype.Text{String: dingtalkID, Valid: true},
+				})
+				if linkErr == nil {
+					user = updated
+				}
+			}
+			return user, false, nil
+		}
+		if !isNotFound(err) {
+			return db.User{}, false, err
+		}
+	}
+
+	// 3. Create new user
+	// Use DingTalk email if available, otherwise generate a synthetic one
+	userEmail := email
+	if userEmail == "" {
+		if dingtalkID != "" {
+			userEmail = "dingtalk_" + dingtalkID + "@dingtalk.local"
+		} else {
+			return db.User{}, false, fmt.Errorf("no email or dingtalk id available")
+		}
+	}
+
+	if err := h.checkSignupAllowed(userEmail, true); err != nil {
+		return db.User{}, false, err
+	}
+
+	userName := nick
+	if userName == "" {
+		if at := strings.Index(userEmail, "@"); at > 0 {
+			userName = userEmail[:at]
+		}
+	}
+
+	// Use pgtype.Text for nullable dingtalk_id
+	var dtID pgtype.Text
+	if dingtalkID != "" {
+		dtID = pgtype.Text{String: dingtalkID, Valid: true}
+	}
+
+	created, err := h.Queries.CreateUser(ctx, db.CreateUserParams{
+		Name:       userName,
+		Email:      userEmail,
+		DingtalkID: dtID,
+	})
+	if err != nil {
+		return db.User{}, false, err
+	}
+	return created, true, nil
+}
+
 // signupSourceFromRequest reads the attribution cookie the web frontend
 // sets on the first pageview (UTM + referrer bundle). The frontend writes
 // a JSON string URL-encoded into the cookie value — Go does not
@@ -458,6 +533,23 @@ type googleUserInfo struct {
 	Picture string `json:"picture"`
 }
 
+type DingTalkLoginRequest struct {
+	Code        string `json:"code"`
+	RedirectURI string `json:"redirect_uri"`
+}
+
+type dingtalkTokenResponse struct {
+	AccessToken string `json:"accessToken"`
+}
+
+type dingtalkUserInfo struct {
+	Nick      string `json:"nick"`
+	AvatarURL string `json:"avatarUrl"`
+	OpenID    string `json:"openId"`
+	UnionID   string `json:"unionId"`
+	Email     string `json:"email"`
+}
+
 func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	var req GoogleLoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -605,6 +697,188 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("user logged in via google", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", user.Email)...)
+	writeJSON(w, http.StatusOK, LoginResponse{
+		Token: tokenString,
+		User:  userToResponse(user),
+	})
+}
+
+// DingTalkLogin handles DingTalk OAuth authorization code exchange.
+func (h *Handler) DingTalkLogin(w http.ResponseWriter, r *http.Request) {
+	var req DingTalkLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Code == "" {
+		writeError(w, http.StatusBadRequest, "code is required")
+		return
+	}
+
+	clientID := os.Getenv("DINGTALK_CLIENT_ID")
+	clientSecret := os.Getenv("DINGTALK_CLIENT_SECRET")
+	if clientID == "" || clientSecret == "" {
+		writeError(w, http.StatusServiceUnavailable, "DingTalk login is not configured")
+		return
+	}
+
+	redirectURI := req.RedirectURI
+	if redirectURI == "" {
+		redirectURI = os.Getenv("DINGTALK_REDIRECT_URI")
+	}
+
+	// Exchange authorization code for access token (DingTalk uses JSON body).
+	tokenBody, err := json.Marshal(map[string]string{
+		"clientId":     clientID,
+		"clientSecret": clientSecret,
+		"code":         req.Code,
+		"grantType":    "authorization_code",
+	})
+	if err != nil {
+		slog.Error("dingtalk marshal token request failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	tokenReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		"https://api.dingtalk.com/v1.0/oauth2/userAccessToken",
+		strings.NewReader(string(tokenBody)))
+	if err != nil {
+		slog.Error("dingtalk token request creation failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	tokenReq.Header.Set("Content-Type", "application/json")
+
+	tokenResp, err := http.DefaultClient.Do(tokenReq)
+	if err != nil {
+		slog.Error("dingtalk oauth token exchange failed", "error", err)
+		writeError(w, http.StatusBadGateway, "failed to exchange code with DingTalk")
+		return
+	}
+	defer tokenResp.Body.Close()
+
+	tokenBytes, err := io.ReadAll(tokenResp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read DingTalk token response")
+		return
+	}
+
+	if tokenResp.StatusCode != http.StatusOK {
+		slog.Error("dingtalk oauth token exchange returned error", "status", tokenResp.StatusCode, "body", string(tokenBytes))
+		writeError(w, http.StatusBadRequest, "failed to exchange code with DingTalk")
+		return
+	}
+
+	var dtToken dingtalkTokenResponse
+	if err := json.Unmarshal(tokenBytes, &dtToken); err != nil {
+		writeError(w, http.StatusBadGateway, "failed to parse DingTalk token response")
+		return
+	}
+
+	if dtToken.AccessToken == "" {
+		writeError(w, http.StatusBadGateway, "no access token in DingTalk response")
+		return
+	}
+
+	// Fetch user info from DingTalk.
+	userInfoReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+		"https://api.dingtalk.com/v1.0/contact/users/me", nil)
+	if err != nil {
+		slog.Error("failed to create dingtalk userinfo request", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	userInfoReq.Header.Set("x-acs-dingtalk-access-token", dtToken.AccessToken)
+
+	userInfoResp, err := http.DefaultClient.Do(userInfoReq)
+	if err != nil {
+		slog.Error("dingtalk userinfo fetch failed", "error", err)
+		writeError(w, http.StatusBadGateway, "failed to fetch user info from DingTalk")
+		return
+	}
+	defer userInfoResp.Body.Close()
+
+	var dtUser dingtalkUserInfo
+	if err := json.NewDecoder(userInfoResp.Body).Decode(&dtUser); err != nil {
+		writeError(w, http.StatusBadGateway, "failed to parse DingTalk user info")
+		return
+	}
+
+	if dtUser.OpenID == "" {
+		writeError(w, http.StatusBadRequest, "DingTalk account missing openId")
+		return
+	}
+
+	dingtalkID := dtUser.OpenID
+	if dtUser.UnionID != "" {
+		dingtalkID = dtUser.UnionID // prefer unionId as it's stable across apps
+	}
+
+	email := strings.ToLower(strings.TrimSpace(dtUser.Email))
+
+	user, isNew, err := h.findOrCreateUserByDingTalk(r.Context(), dingtalkID, email, dtUser.Nick)
+	if err != nil {
+		var signupErr SignupError
+		if errors.As(err, &signupErr) {
+			writeError(w, http.StatusForbidden, signupErr.Error())
+			return
+		}
+		slog.Error("dingtalk findOrCreateUser failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create user")
+		return
+	}
+	if isNew {
+		evt := analytics.Signup(uuidToString(user.ID), user.Email, signupSourceFromRequest(r))
+		evt.Properties["auth_method"] = "dingtalk"
+		h.Analytics.Capture(evt)
+	}
+
+	// Update name and avatar from DingTalk profile if user was just created
+	// or has no avatar yet.
+	needsUpdate := false
+	newName := user.Name
+	newAvatar := user.AvatarUrl
+
+	if dtUser.Nick != "" && (isNew || user.Name == strings.Split(user.Email, "@")[0]) {
+		newName = dtUser.Nick
+		needsUpdate = true
+	}
+	if dtUser.AvatarURL != "" && !user.AvatarUrl.Valid {
+		newAvatar = pgtype.Text{String: dtUser.AvatarURL, Valid: true}
+		needsUpdate = true
+	}
+
+	if needsUpdate {
+		updated, err := h.Queries.UpdateUser(r.Context(), db.UpdateUserParams{
+			ID:        user.ID,
+			Name:      newName,
+			AvatarUrl: newAvatar,
+		})
+		if err == nil {
+			user = updated
+		}
+	}
+
+	tokenString, err := h.issueJWT(user)
+	if err != nil {
+		slog.Warn("dingtalk login failed", append(logger.RequestAttrs(r), "error", err, "dingtalk_id", dingtalkID)...)
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	if err := auth.SetAuthCookies(w, tokenString); err != nil {
+		slog.Warn("failed to set auth cookies", "error", err)
+	}
+
+	if h.CFSigner != nil {
+		for _, cookie := range h.CFSigner.SignedCookies(time.Now().Add(72 * time.Hour)) {
+			http.SetCookie(w, cookie)
+		}
+	}
+
+	slog.Info("user logged in via dingtalk", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", user.Email)...)
 	writeJSON(w, http.StatusOK, LoginResponse{
 		Token: tokenString,
 		User:  userToResponse(user),
