@@ -31,6 +31,8 @@ export interface GitHubInstallation {
 export interface GitHubPullRequest {
   id: string;
   workspace_id: string;
+  /** "github" or "gitee" — discriminator for the unified PR list response. */
+  provider?: string;
   repo_owner: string;
   repo_name: string;
   number: number;

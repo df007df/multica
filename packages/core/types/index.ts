@@ -89,6 +89,11 @@ export type {
   GitHubConnectResponse,
 } from "./github";
 export type {
+  GiteeConnection,
+  ListGiteeConnectionsResponse,
+  GiteeConnectResponse,
+} from "./gitee";
+export type {
   Autopilot,
   AutopilotStatus,
   AutopilotExecutionMode,

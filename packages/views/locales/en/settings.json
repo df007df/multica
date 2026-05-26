@@ -33,7 +33,8 @@
       "github": "GitHub",
       "integrations": "Integrations",
       "labs": "Labs",
-      "members": "Members"
+      "members": "Members",
+      "gitee": "Gitee"
     }
   },
   "account": {
@@ -243,6 +244,11 @@
     "inviting": "Inviting...",
     "toast_invitation_sent": "Invitation sent",
     "toast_invitation_failed": "Failed to send invitation",
+    "copy_invite_link": "Copy invite link",
+    "generating_link": "Generating link...",
+    "toast_link_copied": "Invite link copied to clipboard",
+    "toast_link_failed": "Failed to generate invite link",
+    "or": "or",
     "no_members": "No members found.",
     "pending_title": "Pending invitations ({{count}})",
     "pending_status": "Pending",
@@ -277,5 +283,38 @@
         "description": "Create and work on issues"
       }
     }
+  },
+  "gitee": {
+    "page_description": "Connect a Gitee account via OAuth, control how Pull Requests show up inside Multica, and decide which Gitee webhook features are active.",
+    "section_master": "Enable Gitee features",
+    "master_description_on": "When off, every Gitee UI affordance is hidden and no new side-effects are written. Existing data is kept on the backend.",
+    "master_description_off": "Gitee features are turned off. The PR sidebar and auto-link are paused. Data on the backend is not deleted.",
+    "section_connection": "Connection",
+    "connection_title": "Gitee OAuth",
+    "connection_description": "Link issues to pull requests automatically. When a connected Gitee account's PR references an issue identifier, the PR appears in the issue sidebar.",
+    "connected_to": "Connected as {{login}}",
+    "connect_gitee": "Connect Gitee",
+    "connect_opening": "Opening…",
+    "connect_disabled_tooltip": "Gitee OAuth is not configured on this server",
+    "disconnect": "Disconnect",
+    "disconnecting": "Disconnecting…",
+    "disconnect_confirm_title": "Disconnect Gitee",
+    "disconnect_confirm_description": "Multica will stop receiving webhooks for this Gitee account. Existing PR mirrors and links are kept; reconnect any time to resume updates.",
+    "disconnect_confirm_cancel": "Cancel",
+    "disconnect_confirm_action": "Disconnect",
+    "not_configured": "Gitee integration is not configured for this deployment. Operators must set",
+    "not_configured_and": "and",
+    "read_only_hint": "Read-only view. Only workspace admins and owners can connect or disconnect Gitee.",
+    "contact_admin_to_connect": "Gitee is not connected for this workspace. Ask an admin or owner to set up the Gitee OAuth connection.",
+    "toast_not_configured": "Gitee integration is not configured for this deployment",
+    "toast_open_failed": "Failed to open Gitee authorization",
+    "toast_disconnect_failed": "Failed to disconnect Gitee",
+    "toast_disconnected": "Gitee disconnected",
+    "toast_failed": "Failed to update Gitee settings",
+    "section_features": "Features",
+    "feature_pr_sidebar_label": "Pull Request sidebar",
+    "feature_pr_sidebar_description": "Show linked pull requests inside the issue detail sidebar.",
+    "feature_auto_link_label": "Auto-link issues and PRs",
+    "feature_auto_link_description": "Match PR titles, bodies, and branch names against issue identifiers and create the link automatically."
   }
 }

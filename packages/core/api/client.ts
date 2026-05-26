@@ -99,6 +99,8 @@ import type {
   Squad,
   SquadMember,
   SquadMemberStatusListResponse,
+  ListGiteeConnectionsResponse,
+  GiteeConnectResponse,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -382,6 +384,13 @@ export class ApiClient {
 
   async googleLogin(code: string, redirectUri: string): Promise<LoginResponse> {
     return this.fetch("/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ code, redirect_uri: redirectUri }),
+    });
+  }
+
+  async dingtalkLogin(code: string, redirectUri: string): Promise<LoginResponse> {
+    return this.fetch("/auth/dingtalk", {
       method: "POST",
       body: JSON.stringify({ code, redirect_uri: redirectUri }),
     });
@@ -1204,6 +1213,7 @@ export class ApiClient {
     cdn_domain: string;
     allow_signup: boolean;
     google_client_id?: string;
+    dingtalk_client_id?: string;
     posthog_key?: string;
     posthog_host?: string;
     analytics_environment?: string;
@@ -1243,6 +1253,12 @@ export class ApiClient {
     return this.fetch(`/api/workspaces/${workspaceId}/members`, {
       method: "POST",
       body: JSON.stringify(data),
+    });
+  }
+
+  async createInvitationLink(workspaceId: string): Promise<Invitation> {
+    return this.fetch(`/api/workspaces/${workspaceId}/invitation-link`, {
+      method: "POST",
     });
   }
 
@@ -1833,5 +1849,20 @@ export class ApiClient {
 
   async listIssuePullRequests(issueId: string): Promise<{ pull_requests: GitHubPullRequest[] }> {
     return this.fetch(`/api/issues/${issueId}/pull-requests`);
+  }
+
+  // Gitee integration
+  async getGiteeConnectURL(workspaceId: string): Promise<GiteeConnectResponse> {
+    return this.fetch(`/api/workspaces/${workspaceId}/gitee/connect`);
+  }
+
+  async listGiteeConnections(workspaceId: string): Promise<ListGiteeConnectionsResponse> {
+    return this.fetch(`/api/workspaces/${workspaceId}/gitee/connections`);
+  }
+
+  async deleteGiteeConnection(workspaceId: string, connectionId: string): Promise<void> {
+    await this.fetch(`/api/workspaces/${workspaceId}/gitee/connections/${connectionId}`, {
+      method: "DELETE",
+    });
   }
 }

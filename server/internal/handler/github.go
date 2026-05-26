@@ -51,6 +51,7 @@ type GitHubInstallationResponse struct {
 type GitHubPullRequestResponse struct {
 	ID              string  `json:"id"`
 	WorkspaceID     string  `json:"workspace_id"`
+	Provider        string  `json:"provider"`
 	RepoOwner       string  `json:"repo_owner"`
 	RepoName        string  `json:"repo_name"`
 	Number          int32   `json:"number"`
@@ -122,6 +123,7 @@ func githubPullRequestToResponse(p db.GithubPullRequest) GitHubPullRequestRespon
 	return GitHubPullRequestResponse{
 		ID:              uuidToString(p.ID),
 		WorkspaceID:     uuidToString(p.WorkspaceID),
+		Provider:        "github",
 		RepoOwner:       p.RepoOwner,
 		RepoName:        p.RepoName,
 		Number:          p.PrNumber,
@@ -150,6 +152,7 @@ func issuePullRequestRowToResponse(p db.ListPullRequestsByIssueRow) GitHubPullRe
 	return GitHubPullRequestResponse{
 		ID:               uuidToString(p.ID),
 		WorkspaceID:      uuidToString(p.WorkspaceID),
+		Provider:         "github",
 		RepoOwner:        p.RepoOwner,
 		RepoName:         p.RepoName,
 		Number:           p.PrNumber,
@@ -468,15 +471,29 @@ func (h *Handler) ListPullRequestsForIssue(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	rows, err := h.Queries.ListPullRequestsByIssue(r.Context(), issue.ID)
+	ctx := r.Context()
+
+	// GitHub PRs
+	ghRows, err := h.Queries.ListPullRequestsByIssue(ctx, issue.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list pull requests")
 		return
 	}
-	out := make([]GitHubPullRequestResponse, 0, len(rows))
-	for _, row := range rows {
+	out := make([]GitHubPullRequestResponse, 0, len(ghRows))
+	for _, row := range ghRows {
 		out = append(out, issuePullRequestRowToResponse(row))
 	}
+
+	// Gitee PRs
+	giteeRows, err := h.Queries.ListGiteePullRequestsByIssue(ctx, issue.ID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "failed to list gitee pull requests")
+		return
+	}
+	for _, row := range giteeRows {
+		out = append(out, giteePullRequestToGitHubResponse(row))
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"pull_requests": out})
 }
 
