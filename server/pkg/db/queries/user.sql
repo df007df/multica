@@ -6,9 +6,18 @@ WHERE id = $1;
 SELECT * FROM "user"
 WHERE email = $1;
 
+-- name: GetUserByDingTalkID :one
+SELECT * FROM "user"
+WHERE dingtalk_id = $1;
+
 -- name: CreateUser :one
-INSERT INTO "user" (name, email, avatar_url)
-VALUES ($1, $2, $3)
+INSERT INTO "user" (name, email, avatar_url, dingtalk_id)
+VALUES ($1, $2, $3, sqlc.narg('dingtalk_id'))
+RETURNING *;
+
+-- name: LinkDingTalkID :one
+UPDATE "user" SET dingtalk_id = $2, updated_at = now()
+WHERE id = $1
 RETURNING *;
 
 -- name: UpdateUser :one

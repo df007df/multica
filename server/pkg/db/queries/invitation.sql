@@ -60,3 +60,15 @@ WHERE workspace_id = $1
   AND invitee_email = $2
   AND status = 'pending'
   AND expires_at <= now();
+
+-- name: CreateInvitationLink :one
+INSERT INTO workspace_invitation (workspace_id, inviter_id, role, invite_type)
+VALUES ($1, $2, $3, 'link')
+RETURNING *;
+
+-- name: ListPendingLinkInvitationsByWorkspace :many
+SELECT wi.*, u.name AS inviter_name, u.email AS inviter_email
+FROM workspace_invitation wi
+JOIN "user" u ON u.id = wi.inviter_id
+WHERE wi.workspace_id = $1 AND wi.status = 'pending' AND wi.invite_type = 'link' AND wi.expires_at > now()
+ORDER BY wi.created_at DESC;
