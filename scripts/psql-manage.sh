@@ -119,16 +119,45 @@ export_pgp_password() {
   export PGPASSWORD="$POSTGRES_PASSWORD"
 }
 
+# Run a command as the postgres OS user from /tmp (avoids "Permission denied"
+# when the invoking cwd is root-only, e.g. /root/work/multica).
+postgres_run() {
+  case "$(detect_os)" in
+    macos)
+      "$@"
+      ;;
+    linux)
+      local inner
+      inner="$(printf '%q ' "$@")"
+      if [ "$(id -u)" -eq 0 ]; then
+        su - postgres -s /bin/bash -c "cd /tmp && ${inner}"
+      else
+        sudo -u postgres bash -c "cd /tmp && ${inner}"
+      fi
+      ;;
+    *)
+      fail "Unsupported OS"
+      ;;
+  esac
+}
+
 # Admin psql: OS superuser via local socket (macOS) or postgres user (Linux).
+# PSQL_ADMIN_PORT overrides POSTGRES_PORT (use 5432 during initial bootstrap).
 psql_admin() {
   local db="${1:-postgres}"
   shift || true
+  local port="${PSQL_ADMIN_PORT:-$POSTGRES_PORT}"
+
   case "$(detect_os)" in
     macos)
       psql -d "$db" "$@"
       ;;
     linux)
-      sudo -u postgres psql -d "$db" "$@"
+      if [ "$port" = "5432" ]; then
+        postgres_run psql -d "$db" "$@"
+      else
+        postgres_run psql -h 127.0.0.1 -p "$port" -d "$db" "$@"
+      fi
       ;;
     *)
       fail "Unsupported OS"
@@ -152,7 +181,10 @@ pg_ready() {
       pg_isready -q 2>/dev/null && return 0
     fi
   fi
-  psql_admin postgres -Atqc "SELECT 1" >/dev/null 2>&1
+  if [ "$(detect_os)" = "linux" ] && [ "$port" = "5432" ]; then
+    PSQL_ADMIN_PORT=5432 psql_admin postgres -Atqc "SELECT 1" >/dev/null 2>&1 && return 0
+  fi
+  PSQL_ADMIN_PORT="$port" psql_admin postgres -Atqc "SELECT 1" >/dev/null 2>&1
 }
 
 wait_for_postgres() {
@@ -187,10 +219,10 @@ restart_postgres() {
 
 configure_listen_port() {
   local conf current_port
-  conf="$(psql_admin postgres -Atqc "SHOW config_file")"
+  conf="$(PSQL_ADMIN_PORT=5432 psql_admin postgres -Atqc "SHOW config_file")"
   [ -n "$conf" ] || fail "Cannot locate postgresql.conf"
 
-  current_port="$(psql_admin postgres -Atqc "SHOW port")"
+  current_port="$(PSQL_ADMIN_PORT=5432 psql_admin postgres -Atqc "SHOW port")"
   if [ "$current_port" = "$POSTGRES_PORT" ]; then
     ok "Port already ${POSTGRES_PORT}"
     return 0
@@ -217,6 +249,49 @@ configure_listen_port() {
 
   restart_postgres
   wait_for_postgres "$POSTGRES_PORT"
+}
+
+configure_local_auth() {
+  [ "$(detect_os)" = "linux" ] || return 0
+
+  local hba changed=0
+  hba="$(psql_admin postgres -Atqc "SHOW hba_file")"
+  [ -n "$hba" ] || return 0
+
+  info "Ensuring password auth from 127.0.0.1 in ${hba}..."
+
+  if grep -qE '^[[:space:]]*host[[:space:]]+all[[:space:]]+all[[:space:]]+127\.0\.0\.1/32[[:space:]]+ident' "$hba"; then
+    linux_run sed -i.bak -E \
+      's/^([[:space:]]*host[[:space:]]+all[[:space:]]+all[[:space:]]+127\.0\.0\.1\/32)[[:space:]]+ident/\1            md5/' \
+      "$hba"
+    changed=1
+  fi
+  if ! grep -qE '^[[:space:]]*host[[:space:]]+all[[:space:]]+all[[:space:]]+127\.0\.0\.1/32[[:space:]]+(md5|scram-sha-256|password)' "$hba"; then
+    linux_run bash -c "printf '%s\n' 'host    all    all    127.0.0.1/32    md5' >> '$hba'"
+    changed=1
+  fi
+
+  if [ "$changed" -eq 1 ]; then
+    info "Reloading PostgreSQL after pg_hba.conf update..."
+    linux_run systemctl reload postgresql 2>/dev/null || restart_postgres
+    ok "pg_hba.conf updated"
+  else
+    ok "Localhost password auth already configured"
+  fi
+}
+
+finalize_postgres_install() {
+  if pg_ready "$POSTGRES_PORT"; then
+    ok "PostgreSQL listening on port ${POSTGRES_PORT}"
+  elif pg_ready 5432; then
+    configure_listen_port
+  else
+    wait_for_postgres 5432
+    configure_listen_port
+  fi
+
+  configure_local_auth
+  ensure_role_and_database
 }
 
 role_privileges_sql() {
@@ -295,9 +370,7 @@ install_macos() {
 
   ensure_pg_path >/dev/null || true
   start_postgres_macos
-  wait_for_postgres 5432
-  configure_listen_port
-  ensure_role_and_database
+  finalize_postgres_install
 }
 
 install_linux_apt() {
@@ -315,9 +388,7 @@ install_linux_apt() {
   linux_run systemctl enable postgresql
   linux_run systemctl start postgresql
 
-  wait_for_postgres 5432
-  configure_listen_port
-  ensure_role_and_database
+  finalize_postgres_install
 }
 
 install_linux_dnf() {
@@ -344,9 +415,7 @@ install_linux_dnf() {
   linux_run systemctl enable postgresql
   linux_run systemctl start postgresql
 
-  wait_for_postgres 5432
-  configure_listen_port
-  ensure_role_and_database
+  finalize_postgres_install
 }
 
 cmd_install() {
