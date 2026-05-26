@@ -2,42 +2,17 @@ package handler
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
-	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
-
-// ── Response shapes ─────────────────────────────────────────────────────────
-
-// GiteeConnectionResponse is the JSON shape returned by the connection list
-// endpoint. The access_token is never leaked to the frontend.
-type GiteeConnectionResponse struct {
-	ID             string  `json:"id"`
-	WorkspaceID    string  `json:"workspace_id"`
-	GiteeUserID    string  `json:"gitee_user_id"`
-	GiteeLogin     string  `json:"gitee_login"`
-	GiteeAvatarURL *string `json:"gitee_avatar_url"`
-	CreatedAt      string  `json:"created_at"`
-}
 
 // GiteePullRequestResponse mirrors GitHubPullRequestResponse but omits
 // GitHub-specific fields (mergeable_state, checks_*). The frontend
@@ -66,28 +41,6 @@ type GiteePullRequestResponse struct {
 	Additions       int32   `json:"additions"`
 	Deletions       int32   `json:"deletions"`
 	ChangedFiles    int32   `json:"changed_files"`
-}
-
-type GiteeConnectResponse struct {
-	URL        string `json:"url"`
-	Configured bool   `json:"configured"`
-}
-
-type ListGiteeConnectionsResponse struct {
-	Connections []GiteeConnectionResponse `json:"connections"`
-	Configured  bool                      `json:"configured"`
-	CanManage   bool                      `json:"can_manage,omitempty"`
-}
-
-func giteeConnectionToResponse(c db.GiteeConnection) GiteeConnectionResponse {
-	return GiteeConnectionResponse{
-		ID:             uuidToString(c.ID),
-		WorkspaceID:    uuidToString(c.WorkspaceID),
-		GiteeUserID:    c.GiteeUserID,
-		GiteeLogin:     c.GiteeLogin,
-		GiteeAvatarURL: textToPtr(c.GiteeAvatarUrl),
-		CreatedAt:      timestampToString(c.CreatedAt),
-	}
 }
 
 func giteePullRequestToResponse(p db.GiteePullRequest) GiteePullRequestResponse {
@@ -141,256 +94,8 @@ func giteePullRequestToGitHubResponse(p db.GiteePullRequest) GitHubPullRequestRe
 	}
 }
 
-// ── Config helpers ───────────────────────────────────────────────────────────
-
-func giteeClientID() string     { return strings.TrimSpace(os.Getenv("GITEE_CLIENT_ID")) }
-func giteeClientSecret() string { return strings.TrimSpace(os.Getenv("GITEE_CLIENT_SECRET")) }
 func giteeWebhookSecret() string {
 	return strings.TrimSpace(os.Getenv("GITEE_WEBHOOK_SECRET"))
-}
-func giteeRedirectURI() string {
-	if v := strings.TrimSpace(os.Getenv("GITEE_REDIRECT_URI")); v != "" {
-		return v
-	}
-	frontend := strings.TrimSpace(os.Getenv("FRONTEND_ORIGIN"))
-	if frontend == "" {
-		frontend = "http://localhost:3000"
-	}
-	return strings.TrimRight(frontend, "/") + "/api/gitee/setup"
-}
-
-func isGiteeConfigured() bool {
-	return giteeClientID() != "" && giteeClientSecret() != ""
-}
-
-// ── State token signing ─────────────────────────────────────────────────────
-
-func signGiteeState(workspaceID string) (string, error) {
-	secret := giteeWebhookSecret()
-	if secret == "" {
-		return "", errors.New("gitee integration is not configured")
-	}
-	nonceBytes := make([]byte, 12)
-	if _, err := rand.Read(nonceBytes); err != nil {
-		return "", err
-	}
-	nonce := hex.EncodeToString(nonceBytes)
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(workspaceID))
-	mac.Write([]byte("."))
-	mac.Write([]byte(nonce))
-	sig := hex.EncodeToString(mac.Sum(nil))
-	return workspaceID + "." + nonce + "." + sig, nil
-}
-
-func verifyGiteeState(token string) (string, bool) {
-	secret := giteeWebhookSecret()
-	if secret == "" {
-		return "", false
-	}
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return "", false
-	}
-	workspaceID, nonce, sig := parts[0], parts[1], parts[2]
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(workspaceID))
-	mac.Write([]byte("."))
-	mac.Write([]byte(nonce))
-	expected := hex.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(expected), []byte(sig)) {
-		return "", false
-	}
-	return workspaceID, true
-}
-
-// ── GiteeConnect (GET /api/workspaces/{id}/gitee/connect) ───────────────────
-
-func (h *Handler) GiteeConnect(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "id")
-	if _, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id"); !ok {
-		return
-	}
-	if !isGiteeConfigured() {
-		writeJSON(w, http.StatusOK, GiteeConnectResponse{Configured: false})
-		return
-	}
-	state, err := signGiteeState(workspaceID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to sign state")
-		return
-	}
-	authURL := fmt.Sprintf(
-		"https://gitee.com/oauth/authorize?client_id=%s&redirect_uri=%s&response_type=code&state=%s&scope=%s",
-		url.QueryEscape(giteeClientID()),
-		url.QueryEscape(giteeRedirectURI()),
-		url.QueryEscape(state),
-		url.QueryEscape("user_info projects pull_requests hooks"),
-	)
-	writeJSON(w, http.StatusOK, GiteeConnectResponse{URL: authURL, Configured: true})
-}
-
-// ── GiteeSetupCallback (GET /api/gitee/setup) ───────────────────────────────
-
-func (h *Handler) GiteeSetupCallback(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	code := q.Get("code")
-	state := q.Get("state")
-	frontend := strings.TrimSpace(os.Getenv("FRONTEND_ORIGIN"))
-	if frontend == "" {
-		frontend = "http://localhost:3000"
-	}
-	redirect := frontend + "/settings?tab=gitee"
-
-	if code == "" || state == "" {
-		http.Redirect(w, r, redirect, http.StatusFound)
-		return
-	}
-
-	workspaceID, ok := verifyGiteeState(state)
-	if !ok {
-		http.Redirect(w, r, redirect, http.StatusFound)
-		return
-	}
-
-	wsUUID, err := parseStrictUUID(workspaceID)
-	if err != nil {
-		http.Redirect(w, r, redirect, http.StatusFound)
-		return
-	}
-
-	// Exchange code for access token via Gitee OAuth API
-	tokenResp, err := exchangeGiteeToken(code)
-	if err != nil {
-		slog.Warn("gitee: token exchange failed", "err", err)
-		http.Redirect(w, r, redirect, http.StatusFound)
-		return
-	}
-
-	// Fetch user info from Gitee API
-	userInfo, err := fetchGiteeUser(tokenResp.AccessToken)
-	if err != nil {
-		slog.Warn("gitee: fetch user failed", "err", err)
-		http.Redirect(w, r, redirect, http.StatusFound)
-		return
-	}
-
-	// Best-effort capture of the connecting user (may be nil if the public
-	// callback was hit without a session).
-	connectedByID := pgtype.UUID{}
-	if userID := requestUserID(r); userID != "" {
-		if u, err := parseStrictUUID(userID); err == nil {
-			connectedByID = u
-		}
-	}
-
-	var tokenExpiresAt pgtype.Timestamptz
-	if tokenResp.ExpiresIn > 0 {
-		tokenExpiresAt = pgtype.Timestamptz{
-			Time:  time.Now().UTC().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
-			Valid: true,
-		}
-	}
-
-	_, err = h.Queries.CreateGiteeConnection(r.Context(), db.CreateGiteeConnectionParams{
-		WorkspaceID:    wsUUID,
-		GiteeUserID:    strconv.FormatInt(userInfo.ID, 10),
-		GiteeLogin:     userInfo.Login,
-		GiteeAvatarUrl: ptrToText(strPtrOrNil(userInfo.AvatarURL)),
-		AccessToken:    tokenResp.AccessToken,
-		RefreshToken:   ptrToText(strPtrOrNil(tokenResp.RefreshToken)),
-		TokenExpiresAt: tokenExpiresAt,
-		ConnectedByID:  connectedByID,
-	})
-	if err != nil {
-		slog.Warn("gitee: save connection failed", "err", err)
-		http.Redirect(w, r, redirect, http.StatusFound)
-		return
-	}
-
-	// Publish real-time event so the Settings tab updates live
-	h.publish(protocol.EventGiteeConnectionCreated, uuidToString(wsUUID), "system", "", map[string]any{
-		"gitee_user_id": userInfo.ID,
-		"gitee_login":   userInfo.Login,
-	})
-
-	http.Redirect(w, r, redirect, http.StatusFound)
-}
-
-// ── ListGiteeConnections (GET /api/workspaces/{id}/gitee/connections) ──────
-
-func (h *Handler) ListGiteeConnections(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "id")
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
-	if !ok {
-		return
-	}
-
-	connections, err := h.Queries.ListGiteeConnectionsByWorkspace(r.Context(), wsUUID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list gitee connections")
-		return
-	}
-
-	resp := ListGiteeConnectionsResponse{
-		Connections: make([]GiteeConnectionResponse, 0, len(connections)),
-		Configured:  isGiteeConfigured(),
-	}
-	for _, c := range connections {
-		resp.Connections = append(resp.Connections, giteeConnectionToResponse(c))
-	}
-
-	// can_manage: admin or owner of the workspace
-	if member, ok := middleware.MemberFromContext(r.Context()); ok {
-		resp.CanManage = roleAllowed(member.Role, "owner", "admin")
-	}
-
-	writeJSON(w, http.StatusOK, resp)
-}
-
-// ── DeleteGiteeConnection (DELETE /api/workspaces/{id}/gitee/connections/{connectionId}) ──
-
-func (h *Handler) DeleteGiteeConnection(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "id")
-	connectionID := chi.URLParam(r, "connectionId")
-
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
-	if !ok {
-		return
-	}
-	connUUID, ok := parseUUIDOrBadRequest(w, connectionID, "connection id")
-	if !ok {
-		return
-	}
-
-	// Verify the connection belongs to this workspace
-	conn, err := h.Queries.GetGiteeConnectionByID(r.Context(), connUUID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "connection not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to lookup connection")
-		return
-	}
-	if uuidToString(conn.WorkspaceID) != uuidToString(wsUUID) {
-		writeError(w, http.StatusNotFound, "connection not found")
-		return
-	}
-
-	if err := h.Queries.DeleteGiteeConnection(r.Context(), db.DeleteGiteeConnectionParams{
-		ID:          connUUID,
-		WorkspaceID: wsUUID,
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete connection")
-		return
-	}
-
-	h.publish(protocol.EventGiteeConnectionDeleted, uuidToString(wsUUID), "system", "", map[string]any{
-		"id": uuidToString(connUUID),
-	})
-
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── HandleGiteeWebhook (POST /api/webhooks/gitee) ───────────────────────────
@@ -439,21 +144,21 @@ func (h *Handler) HandleGiteeWebhook(w http.ResponseWriter, r *http.Request) {
 type giteeWebhookPRPayload struct {
 	Action      string `json:"action"`
 	PullRequest struct {
-		ID          int64  `json:"id"`
-		Number      int32  `json:"number"`
-		Title       string `json:"title"`
-		Body        string `json:"body"`
-		State       string `json:"state"`
-		HTMLURL     string `json:"html_url"`
-		Merged      bool   `json:"merged"`
-		MergedAt    string `json:"merged_at"`
-		ClosedAt    string `json:"closed_at"`
-		CreatedAt   string `json:"created_at"`
-		UpdatedAt   string `json:"updated_at"`
-		Additions   int32  `json:"additions"`
-		Deletions   int32  `json:"deletions"`
-		ChangedFiles int32 `json:"changed_files"`
-		Head        struct {
+		ID           int64  `json:"id"`
+		Number       int32  `json:"number"`
+		Title        string `json:"title"`
+		Body         string `json:"body"`
+		State        string `json:"state"`
+		HTMLURL      string `json:"html_url"`
+		Merged       bool   `json:"merged"`
+		MergedAt     string `json:"merged_at"`
+		ClosedAt     string `json:"closed_at"`
+		CreatedAt    string `json:"created_at"`
+		UpdatedAt    string `json:"updated_at"`
+		Additions    int32  `json:"additions"`
+		Deletions    int32  `json:"deletions"`
+		ChangedFiles int32  `json:"changed_files"`
+		Head         struct {
 			Ref string `json:"ref"`
 		} `json:"head"`
 		Base struct {
@@ -485,33 +190,30 @@ func (h *Handler) handleGiteePullRequestEvent(ctx context.Context, body []byte) 
 		return
 	}
 
-	// Find the workspace with a Gitee connection that has this repo.
-	// We iterate all connections and match against workspace repo URLs.
-	connID, wsUUID, ok := h.findGiteeConnectionForRepo(ctx, repoOwner, repoName)
+	wsUUID, ok := h.findWorkspaceForGiteeRepo(ctx, repoOwner, repoName)
 	if !ok {
 		return
 	}
 
 	state := deriveGiteePRState(p.PullRequest.State, p.PullRequest.Merged)
 	pr, err := h.Queries.UpsertGiteePullRequest(ctx, db.UpsertGiteePullRequestParams{
-		WorkspaceID:       wsUUID,
-		GiteeConnectionID: connID,
-		RepoOwner:         repoOwner,
-		RepoName:          repoName,
-		PrNumber:          p.PullRequest.Number,
-		Title:             p.PullRequest.Title,
-		State:             state,
-		HtmlUrl:           p.PullRequest.HTMLURL,
-		Branch:            ptrToText(strPtrOrNil(p.PullRequest.Head.Ref)),
-		AuthorLogin:       ptrToText(strPtrOrNil(p.PullRequest.User.Login)),
-		AuthorAvatarUrl:   ptrToText(strPtrOrNil(p.PullRequest.User.AvatarURL)),
-		MergedAt:          parseGHTime(p.PullRequest.MergedAt),
-		ClosedAt:          parseGHTime(p.PullRequest.ClosedAt),
-		PrCreatedAt:       parseGHTimeRequired(p.PullRequest.CreatedAt),
-		PrUpdatedAt:       parseGHTimeRequired(p.PullRequest.UpdatedAt),
-		Additions:         p.PullRequest.Additions,
-		Deletions:         p.PullRequest.Deletions,
-		ChangedFiles:      p.PullRequest.ChangedFiles,
+		WorkspaceID:     wsUUID,
+		RepoOwner:       repoOwner,
+		RepoName:        repoName,
+		PrNumber:        p.PullRequest.Number,
+		Title:           p.PullRequest.Title,
+		State:           state,
+		HtmlUrl:         p.PullRequest.HTMLURL,
+		Branch:          ptrToText(strPtrOrNil(p.PullRequest.Head.Ref)),
+		AuthorLogin:     ptrToText(strPtrOrNil(p.PullRequest.User.Login)),
+		AuthorAvatarUrl: ptrToText(strPtrOrNil(p.PullRequest.User.AvatarURL)),
+		MergedAt:        parseGHTime(p.PullRequest.MergedAt),
+		ClosedAt:        parseGHTime(p.PullRequest.ClosedAt),
+		PrCreatedAt:     parseGHTimeRequired(p.PullRequest.CreatedAt),
+		PrUpdatedAt:     parseGHTimeRequired(p.PullRequest.UpdatedAt),
+		Additions:       p.PullRequest.Additions,
+		Deletions:       p.PullRequest.Deletions,
+		ChangedFiles:    p.PullRequest.ChangedFiles,
 	})
 	if err != nil {
 		slog.Warn("gitee: upsert pr failed", "err", err)
@@ -577,88 +279,6 @@ func (h *Handler) handleGiteePullRequestEvent(ctx context.Context, body []byte) 
 	}
 }
 
-// ── Gitee OAuth API calls ────────────────────────────────────────────────────
-
-type giteeTokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int    `json:"expires_in"`
-}
-
-type giteeUserResponse struct {
-	ID        int64  `json:"id"`
-	Login     string `json:"login"`
-	AvatarURL string `json:"avatar_url"`
-}
-
-func exchangeGiteeToken(code string) (*giteeTokenResponse, error) {
-	data := url.Values{}
-	data.Set("grant_type", "authorization_code")
-	data.Set("code", code)
-	data.Set("client_id", giteeClientID())
-	data.Set("client_secret", giteeClientSecret())
-	data.Set("redirect_uri", giteeRedirectURI())
-
-	req, err := http.NewRequest(http.MethodPost, "https://gitee.com/oauth/token", strings.NewReader(data.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("gitee token exchange: status %d body %s", resp.StatusCode, string(body))
-	}
-
-	var tr giteeTokenResponse
-	if err := json.Unmarshal(body, &tr); err != nil {
-		return nil, err
-	}
-	return &tr, nil
-}
-
-func fetchGiteeUser(accessToken string) (*giteeUserResponse, error) {
-	req, err := http.NewRequest(http.MethodGet, "https://gitee.com/api/v5/user?access_token="+url.QueryEscape(accessToken), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("gitee user fetch: status %d body %s", resp.StatusCode, string(body))
-	}
-
-	var user giteeUserResponse
-	if err := json.Unmarshal(body, &user); err != nil {
-		return nil, err
-	}
-	return &user, nil
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
 func deriveGiteePRState(state string, merged bool) string {
 	if merged {
 		return "merged"
@@ -696,27 +316,19 @@ func (h *Handler) workspaceGiteeAutoLinkPRsEnabled(ctx context.Context, workspac
 	return *s.GiteeAutoLinkPRsEnabled
 }
 
-// findGiteeConnectionForRepo locates the workspace that has a Gitee
-// connection and whose repo URLs match the given repo owner/name.
-func (h *Handler) findGiteeConnectionForRepo(ctx context.Context, repoOwner, repoName string) (pgtype.UUID, pgtype.UUID, bool) {
-	// We need to find a workspace-level connection. Try all connections;
-	// for each, check if the workspace has this repo in its repos list.
-	// This is acceptable for expected connection counts (< 20 per deployment).
-	rows, err := h.Queries.ListAllGiteeConnections(ctx)
+// findWorkspaceForGiteeRepo locates the workspace whose configured repository
+// URLs match the given Gitee owner/name.
+func (h *Handler) findWorkspaceForGiteeRepo(ctx context.Context, repoOwner, repoName string) (pgtype.UUID, bool) {
+	rows, err := h.Queries.ListWorkspacesWithRepos(ctx)
 	if err != nil {
-		return pgtype.UUID{}, pgtype.UUID{}, false
+		return pgtype.UUID{}, false
 	}
-	for _, c := range rows {
-		ws, err := h.Queries.GetWorkspace(ctx, c.WorkspaceID)
-		if err != nil {
-			continue
-		}
-		// Check workspace repos for a matching Gitee URL
-		if workspaceHasGiteeRepo(ws.Repos, repoOwner, repoName) {
-			return c.ID, c.WorkspaceID, true
+	for _, row := range rows {
+		if workspaceHasGiteeRepo(row.Repos, repoOwner, repoName) {
+			return row.ID, true
 		}
 	}
-	return pgtype.UUID{}, pgtype.UUID{}, false
+	return pgtype.UUID{}, false
 }
 
 // workspaceHasGiteeRepo checks the workspace repos JSON for a Gitee repo URL

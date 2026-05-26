@@ -11,156 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createGiteeConnection = `-- name: CreateGiteeConnection :one
-INSERT INTO gitee_connection (
-    workspace_id, gitee_user_id, gitee_login, gitee_avatar_url,
-    access_token, refresh_token, token_expires_at, connected_by_id
-) VALUES (
-    $1, $2, $3, $5,
-    $4, $6, $7,
-    $8
-)
-ON CONFLICT (workspace_id, gitee_user_id) DO UPDATE SET
-    gitee_login = EXCLUDED.gitee_login,
-    gitee_avatar_url = EXCLUDED.gitee_avatar_url,
-    access_token = EXCLUDED.access_token,
-    refresh_token = EXCLUDED.refresh_token,
-    token_expires_at = EXCLUDED.token_expires_at,
-    updated_at = now()
-RETURNING id, workspace_id, gitee_user_id, gitee_login, gitee_avatar_url, access_token, refresh_token, token_expires_at, connected_by_id, created_at, updated_at
-`
-
-type CreateGiteeConnectionParams struct {
-	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
-	GiteeUserID    string             `json:"gitee_user_id"`
-	GiteeLogin     string             `json:"gitee_login"`
-	AccessToken    string             `json:"access_token"`
-	GiteeAvatarUrl pgtype.Text        `json:"gitee_avatar_url"`
-	RefreshToken   pgtype.Text        `json:"refresh_token"`
-	TokenExpiresAt pgtype.Timestamptz `json:"token_expires_at"`
-	ConnectedByID  pgtype.UUID        `json:"connected_by_id"`
-}
-
-func (q *Queries) CreateGiteeConnection(ctx context.Context, arg CreateGiteeConnectionParams) (GiteeConnection, error) {
-	row := q.db.QueryRow(ctx, createGiteeConnection,
-		arg.WorkspaceID,
-		arg.GiteeUserID,
-		arg.GiteeLogin,
-		arg.AccessToken,
-		arg.GiteeAvatarUrl,
-		arg.RefreshToken,
-		arg.TokenExpiresAt,
-		arg.ConnectedByID,
-	)
-	var i GiteeConnection
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.GiteeUserID,
-		&i.GiteeLogin,
-		&i.GiteeAvatarUrl,
-		&i.AccessToken,
-		&i.RefreshToken,
-		&i.TokenExpiresAt,
-		&i.ConnectedByID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const deleteGiteeConnection = `-- name: DeleteGiteeConnection :exec
-DELETE FROM gitee_connection WHERE id = $1 AND workspace_id = $2
-`
-
-type DeleteGiteeConnectionParams struct {
-	ID          pgtype.UUID `json:"id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-}
-
-func (q *Queries) DeleteGiteeConnection(ctx context.Context, arg DeleteGiteeConnectionParams) error {
-	_, err := q.db.Exec(ctx, deleteGiteeConnection, arg.ID, arg.WorkspaceID)
-	return err
-}
-
-const deleteGiteeConnectionByWorkspaceAndUserID = `-- name: DeleteGiteeConnectionByWorkspaceAndUserID :one
-DELETE FROM gitee_connection
-WHERE workspace_id = $1 AND gitee_user_id = $2
-RETURNING id, workspace_id
-`
-
-type DeleteGiteeConnectionByWorkspaceAndUserIDParams struct {
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	GiteeUserID string      `json:"gitee_user_id"`
-}
-
-type DeleteGiteeConnectionByWorkspaceAndUserIDRow struct {
-	ID          pgtype.UUID `json:"id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-}
-
-func (q *Queries) DeleteGiteeConnectionByWorkspaceAndUserID(ctx context.Context, arg DeleteGiteeConnectionByWorkspaceAndUserIDParams) (DeleteGiteeConnectionByWorkspaceAndUserIDRow, error) {
-	row := q.db.QueryRow(ctx, deleteGiteeConnectionByWorkspaceAndUserID, arg.WorkspaceID, arg.GiteeUserID)
-	var i DeleteGiteeConnectionByWorkspaceAndUserIDRow
-	err := row.Scan(&i.ID, &i.WorkspaceID)
-	return i, err
-}
-
-const getGiteeConnectionByID = `-- name: GetGiteeConnectionByID :one
-SELECT id, workspace_id, gitee_user_id, gitee_login, gitee_avatar_url, access_token, refresh_token, token_expires_at, connected_by_id, created_at, updated_at FROM gitee_connection
-WHERE id = $1
-`
-
-func (q *Queries) GetGiteeConnectionByID(ctx context.Context, id pgtype.UUID) (GiteeConnection, error) {
-	row := q.db.QueryRow(ctx, getGiteeConnectionByID, id)
-	var i GiteeConnection
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.GiteeUserID,
-		&i.GiteeLogin,
-		&i.GiteeAvatarUrl,
-		&i.AccessToken,
-		&i.RefreshToken,
-		&i.TokenExpiresAt,
-		&i.ConnectedByID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getGiteeConnectionByWorkspaceAndUserID = `-- name: GetGiteeConnectionByWorkspaceAndUserID :one
-SELECT id, workspace_id, gitee_user_id, gitee_login, gitee_avatar_url, access_token, refresh_token, token_expires_at, connected_by_id, created_at, updated_at FROM gitee_connection
-WHERE workspace_id = $1 AND gitee_user_id = $2
-`
-
-type GetGiteeConnectionByWorkspaceAndUserIDParams struct {
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	GiteeUserID string      `json:"gitee_user_id"`
-}
-
-func (q *Queries) GetGiteeConnectionByWorkspaceAndUserID(ctx context.Context, arg GetGiteeConnectionByWorkspaceAndUserIDParams) (GiteeConnection, error) {
-	row := q.db.QueryRow(ctx, getGiteeConnectionByWorkspaceAndUserID, arg.WorkspaceID, arg.GiteeUserID)
-	var i GiteeConnection
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.GiteeUserID,
-		&i.GiteeLogin,
-		&i.GiteeAvatarUrl,
-		&i.AccessToken,
-		&i.RefreshToken,
-		&i.TokenExpiresAt,
-		&i.ConnectedByID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getGiteePullRequest = `-- name: GetGiteePullRequest :one
-SELECT id, workspace_id, gitee_connection_id, repo_owner, repo_name, pr_number, title, state, html_url, branch, author_login, author_avatar_url, merged_at, closed_at, pr_created_at, pr_updated_at, additions, deletions, changed_files, created_at, updated_at FROM gitee_pull_request
+SELECT id, workspace_id, repo_owner, repo_name, pr_number, title, state, html_url, branch, author_login, author_avatar_url, merged_at, closed_at, pr_created_at, pr_updated_at, additions, deletions, changed_files, created_at, updated_at FROM gitee_pull_request
 WHERE workspace_id = $1 AND repo_owner = $2 AND repo_name = $3 AND pr_number = $4
 `
 
@@ -182,7 +34,6 @@ func (q *Queries) GetGiteePullRequest(ctx context.Context, arg GetGiteePullReque
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
-		&i.GiteeConnectionID,
 		&i.RepoOwner,
 		&i.RepoName,
 		&i.PrNumber,
@@ -262,87 +113,9 @@ func (q *Queries) LinkIssueToGiteePullRequest(ctx context.Context, arg LinkIssue
 	return err
 }
 
-const listAllGiteeConnections = `-- name: ListAllGiteeConnections :many
-SELECT id, workspace_id, gitee_user_id, gitee_login, gitee_avatar_url, access_token, refresh_token, token_expires_at, connected_by_id, created_at, updated_at FROM gitee_connection
-`
-
-func (q *Queries) ListAllGiteeConnections(ctx context.Context) ([]GiteeConnection, error) {
-	rows, err := q.db.Query(ctx, listAllGiteeConnections)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []GiteeConnection{}
-	for rows.Next() {
-		var i GiteeConnection
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.GiteeUserID,
-			&i.GiteeLogin,
-			&i.GiteeAvatarUrl,
-			&i.AccessToken,
-			&i.RefreshToken,
-			&i.TokenExpiresAt,
-			&i.ConnectedByID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listGiteeConnectionsByWorkspace = `-- name: ListGiteeConnectionsByWorkspace :many
-
-SELECT id, workspace_id, gitee_user_id, gitee_login, gitee_avatar_url, access_token, refresh_token, token_expires_at, connected_by_id, created_at, updated_at FROM gitee_connection
-WHERE workspace_id = $1
-ORDER BY created_at ASC
-`
-
-// =====================
-// Gitee OAuth Connection
-// =====================
-func (q *Queries) ListGiteeConnectionsByWorkspace(ctx context.Context, workspaceID pgtype.UUID) ([]GiteeConnection, error) {
-	rows, err := q.db.Query(ctx, listGiteeConnectionsByWorkspace, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []GiteeConnection{}
-	for rows.Next() {
-		var i GiteeConnection
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.GiteeUserID,
-			&i.GiteeLogin,
-			&i.GiteeAvatarUrl,
-			&i.AccessToken,
-			&i.RefreshToken,
-			&i.TokenExpiresAt,
-			&i.ConnectedByID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listGiteePullRequestsByIssue = `-- name: ListGiteePullRequestsByIssue :many
 SELECT
-    pr.id, pr.workspace_id, pr.gitee_connection_id, pr.repo_owner, pr.repo_name,
+    pr.id, pr.workspace_id, pr.repo_owner, pr.repo_name,
     pr.pr_number, pr.title, pr.state, pr.html_url, pr.branch, pr.author_login,
     pr.author_avatar_url, pr.merged_at, pr.closed_at, pr.pr_created_at,
     pr.pr_updated_at, pr.additions, pr.deletions, pr.changed_files,
@@ -365,7 +138,6 @@ func (q *Queries) ListGiteePullRequestsByIssue(ctx context.Context, issueID pgty
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
-			&i.GiteeConnectionID,
 			&i.RepoOwner,
 			&i.RepoName,
 			&i.PrNumber,
@@ -438,15 +210,15 @@ func (q *Queries) UnlinkIssueFromGiteePullRequest(ctx context.Context, arg Unlin
 const upsertGiteePullRequest = `-- name: UpsertGiteePullRequest :one
 
 INSERT INTO gitee_pull_request (
-    workspace_id, gitee_connection_id, repo_owner, repo_name, pr_number,
+    workspace_id, repo_owner, repo_name, pr_number,
     title, state, html_url, branch, author_login, author_avatar_url,
     merged_at, closed_at, pr_created_at, pr_updated_at,
     additions, deletions, changed_files
 ) VALUES (
-    $1, $2, $3, $4, $5,
-    $6, $7, $8, $14, $15, $16,
-    $17, $18, $9, $10,
-    $11, $12, $13
+    $1, $2, $3, $4,
+    $5, $6, $7, $13, $14, $15,
+    $16, $17, $8, $9,
+    $10, $11, $12
 )
 ON CONFLICT (workspace_id, repo_owner, repo_name, pr_number) DO UPDATE SET
     title = EXCLUDED.title,
@@ -462,28 +234,27 @@ ON CONFLICT (workspace_id, repo_owner, repo_name, pr_number) DO UPDATE SET
     deletions = EXCLUDED.deletions,
     changed_files = EXCLUDED.changed_files,
     updated_at = now()
-RETURNING id, workspace_id, gitee_connection_id, repo_owner, repo_name, pr_number, title, state, html_url, branch, author_login, author_avatar_url, merged_at, closed_at, pr_created_at, pr_updated_at, additions, deletions, changed_files, created_at, updated_at
+RETURNING id, workspace_id, repo_owner, repo_name, pr_number, title, state, html_url, branch, author_login, author_avatar_url, merged_at, closed_at, pr_created_at, pr_updated_at, additions, deletions, changed_files, created_at, updated_at
 `
 
 type UpsertGiteePullRequestParams struct {
-	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
-	GiteeConnectionID pgtype.UUID        `json:"gitee_connection_id"`
-	RepoOwner         string             `json:"repo_owner"`
-	RepoName          string             `json:"repo_name"`
-	PrNumber          int32              `json:"pr_number"`
-	Title             string             `json:"title"`
-	State             string             `json:"state"`
-	HtmlUrl           string             `json:"html_url"`
-	PrCreatedAt       pgtype.Timestamptz `json:"pr_created_at"`
-	PrUpdatedAt       pgtype.Timestamptz `json:"pr_updated_at"`
-	Additions         int32              `json:"additions"`
-	Deletions         int32              `json:"deletions"`
-	ChangedFiles      int32              `json:"changed_files"`
-	Branch            pgtype.Text        `json:"branch"`
-	AuthorLogin       pgtype.Text        `json:"author_login"`
-	AuthorAvatarUrl   pgtype.Text        `json:"author_avatar_url"`
-	MergedAt          pgtype.Timestamptz `json:"merged_at"`
-	ClosedAt          pgtype.Timestamptz `json:"closed_at"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	RepoOwner       string             `json:"repo_owner"`
+	RepoName        string             `json:"repo_name"`
+	PrNumber        int32              `json:"pr_number"`
+	Title           string             `json:"title"`
+	State           string             `json:"state"`
+	HtmlUrl         string             `json:"html_url"`
+	PrCreatedAt     pgtype.Timestamptz `json:"pr_created_at"`
+	PrUpdatedAt     pgtype.Timestamptz `json:"pr_updated_at"`
+	Additions       int32              `json:"additions"`
+	Deletions       int32              `json:"deletions"`
+	ChangedFiles    int32              `json:"changed_files"`
+	Branch          pgtype.Text        `json:"branch"`
+	AuthorLogin     pgtype.Text        `json:"author_login"`
+	AuthorAvatarUrl pgtype.Text        `json:"author_avatar_url"`
+	MergedAt        pgtype.Timestamptz `json:"merged_at"`
+	ClosedAt        pgtype.Timestamptz `json:"closed_at"`
 }
 
 // =====================
@@ -492,7 +263,6 @@ type UpsertGiteePullRequestParams struct {
 func (q *Queries) UpsertGiteePullRequest(ctx context.Context, arg UpsertGiteePullRequestParams) (GiteePullRequest, error) {
 	row := q.db.QueryRow(ctx, upsertGiteePullRequest,
 		arg.WorkspaceID,
-		arg.GiteeConnectionID,
 		arg.RepoOwner,
 		arg.RepoName,
 		arg.PrNumber,
@@ -514,7 +284,6 @@ func (q *Queries) UpsertGiteePullRequest(ctx context.Context, arg UpsertGiteePul
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
-		&i.GiteeConnectionID,
 		&i.RepoOwner,
 		&i.RepoName,
 		&i.PrNumber,

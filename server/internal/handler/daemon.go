@@ -235,40 +235,6 @@ func workspaceReposResponse(workspaceID string, raw []byte, settingsRaw []byte) 
 	return resp
 }
 
-// enrichReposWithGiteeTokens rewrites Gitee.com repo URLs to embed an OAuth
-// access token from a workspace gitee_connection, so the daemon can clone
-// private Gitee repos without manual credential setup.
-func (h *Handler) enrichReposWithGiteeTokens(ctx context.Context, workspaceID string, repos []RepoData) []RepoData {
-	wsUUID := parseUUID(workspaceID)
-	connections, err := h.Queries.ListGiteeConnectionsByWorkspace(ctx, wsUUID)
-	if err != nil || len(connections) == 0 {
-		return repos
-	}
-	token := connections[0].AccessToken
-	if token == "" {
-		return repos
-	}
-	out := make([]RepoData, len(repos))
-	for i, repo := range repos {
-		u := repo.URL
-		if strings.Contains(u, "gitee.com") {
-			u = embedTokenInGiteeURL(u, token)
-		}
-		out[i] = RepoData{URL: u}
-	}
-	return out
-}
-
-// embedTokenInGiteeURL injects an OAuth token into a Gitee HTTPS URL so git
-// can authenticate without a credential helper.
-//
-//	https://gitee.com/owner/repo.git  →  https://oauth2:{token}@gitee.com/owner/repo.git
-func embedTokenInGiteeURL(rawURL, token string) string {
-	u := strings.TrimPrefix(rawURL, "https://")
-	u = strings.TrimPrefix(u, "http://")
-	return "https://oauth2:" + token + "@" + u
-}
-
 func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 	var req DaemonRegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -435,8 +401,6 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 	})
 
 	repoResp := workspaceReposResponse(req.WorkspaceID, ws.Repos, ws.Settings)
-	repoResp.Repos = h.enrichReposWithGiteeTokens(r.Context(), req.WorkspaceID, repoResp.Repos)
-	repoResp.ReposVersion = workspaceReposVersion(repoResp.Repos)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"runtimes":      resp,
@@ -540,10 +504,7 @@ func (h *Handler) GetDaemonWorkspaceRepos(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	repoResp := workspaceReposResponse(workspaceID, ws.Repos, ws.Settings)
-	repoResp.Repos = h.enrichReposWithGiteeTokens(r.Context(), workspaceID, repoResp.Repos)
-	repoResp.ReposVersion = workspaceReposVersion(repoResp.Repos)
-	writeJSON(w, http.StatusOK, repoResp)
+	writeJSON(w, http.StatusOK, workspaceReposResponse(workspaceID, ws.Repos, ws.Settings))
 }
 
 // DaemonDeregister marks runtimes as offline when the daemon shuts down.
@@ -1547,8 +1508,6 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "task workspace isolation check failed")
 		return
 	}
-
-	resp.Repos = h.enrichReposWithGiteeTokens(r.Context(), resp.WorkspaceID, resp.Repos)
 
 	slog.Info("task claimed by runtime", "task_id", uuidToString(task.ID), "runtime_id", runtimeID, "agent_id", uuidToString(task.AgentID), "prior_session", resp.PriorSessionID)
 	writeJSON(w, http.StatusOK, map[string]any{"task": resp})

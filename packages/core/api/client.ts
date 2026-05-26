@@ -99,8 +99,6 @@ import type {
   Squad,
   SquadMember,
   SquadMemberStatusListResponse,
-  ListGiteeConnectionsResponse,
-  GiteeConnectResponse,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -1214,6 +1212,7 @@ export class ApiClient {
     allow_signup: boolean;
     google_client_id?: string;
     dingtalk_client_id?: string;
+    gitee_enabled?: boolean;
     posthog_key?: string;
     posthog_host?: string;
     analytics_environment?: string;
@@ -1849,20 +1848,5 @@ export class ApiClient {
 
   async listIssuePullRequests(issueId: string): Promise<{ pull_requests: GitHubPullRequest[] }> {
     return this.fetch(`/api/issues/${issueId}/pull-requests`);
-  }
-
-  // Gitee integration
-  async getGiteeConnectURL(workspaceId: string): Promise<GiteeConnectResponse> {
-    return this.fetch(`/api/workspaces/${workspaceId}/gitee/connect`);
-  }
-
-  async listGiteeConnections(workspaceId: string): Promise<ListGiteeConnectionsResponse> {
-    return this.fetch(`/api/workspaces/${workspaceId}/gitee/connections`);
-  }
-
-  async deleteGiteeConnection(workspaceId: string, connectionId: string): Promise<void> {
-    await this.fetch(`/api/workspaces/${workspaceId}/gitee/connections/${connectionId}`, {
-      method: "DELETE",
-    });
   }
 }

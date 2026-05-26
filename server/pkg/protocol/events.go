@@ -121,8 +121,4 @@ const (
 	EventPullRequestLinked         = "pull_request:linked"
 	EventPullRequestUpdated        = "pull_request:updated"
 	EventPullRequestUnlinked       = "pull_request:unlinked"
-
-	// Gitee integration events
-	EventGiteeConnectionCreated = "gitee_connection:created"
-	EventGiteeConnectionDeleted = "gitee_connection:deleted"
 )

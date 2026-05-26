@@ -75,7 +75,6 @@
     "./github": "./github/index.ts",
     "./github/queries": "./github/queries.ts",
     "./gitee": "./gitee/index.ts",
-    "./gitee/queries": "./gitee/queries.ts",
     "./gitee/settings": "./gitee/settings.ts",
     "./gitee/use-gitee-settings": "./gitee/use-gitee-settings.ts",
     "./feedback": "./feedback/index.ts",

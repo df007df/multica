@@ -8,6 +8,10 @@ ORDER BY w.created_at ASC;
 SELECT * FROM workspace
 WHERE id = $1;
 
+-- name: ListWorkspacesWithRepos :many
+SELECT id, repos FROM workspace
+WHERE jsonb_array_length(repos) > 0;
+
 -- name: GetWorkspaceBySlug :one
 SELECT * FROM workspace
 WHERE slug = $1;
