@@ -4,29 +4,18 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Link2, PanelRight } from "lucide-react";
-import { Button } from "@multica/ui/components/ui/button";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Label } from "@multica/ui/components/ui/label";
 import { Switch } from "@multica/ui/components/ui/switch";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@multica/ui/components/ui/alert-dialog";
+import { Button } from "@multica/ui/components/ui/button";
+import { useAuthStore } from "@multica/core/auth";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useCurrentWorkspace } from "@multica/core/paths";
-import { workspaceKeys } from "@multica/core/workspace/queries";
-import {
-  deriveGiteeSettings,
-  giteeConnectionsOptions,
-} from "@multica/core/gitee";
+import { memberListOptions, workspaceKeys } from "@multica/core/workspace/queries";
+import { deriveGiteeSettings, buildGiteeWebhookUrl } from "@multica/core/gitee";
 import { api } from "@multica/core/api";
-import type { Workspace, ListGiteeConnectionsResponse } from "@multica/core/types";
+import type { Workspace } from "@multica/core/types";
+import { useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
 import { GiteeMark } from "./gitee-mark";
 
@@ -40,20 +29,25 @@ export function GiteeTab() {
   const workspace = useCurrentWorkspace();
   const wsId = useWorkspaceId();
   const qc = useQueryClient();
+  const navigation = useNavigation();
+  const user = useAuthStore((s) => s.user);
 
-  const connectionsQuery = useQuery(giteeConnectionsOptions(wsId));
-  const connectionData: ListGiteeConnectionsResponse | undefined = connectionsQuery.data;
-  const connections = connectionData?.connections ?? [];
-  const configured = connectionData?.configured ?? false;
-  const canManage = connectionData?.can_manage === true;
-  const connected = connections.length > 0;
-  const primaryConnection = connections[0] ?? null;
+  const { data: members = [] } = useQuery(memberListOptions(wsId));
+  const currentMember = members.find((m) => m.user_id === user?.id) ?? null;
+  const canManage = currentMember?.role === "owner" || currentMember?.role === "admin";
+
+  const { data: appConfig } = useQuery({
+    queryKey: ["app-config"],
+    queryFn: () => api.getConfig(),
+    staleTime: 60_000,
+  });
+  const configured = appConfig?.gitee_enabled === true;
 
   const flags = deriveGiteeSettings(workspace);
   const [savingKey, setSavingKey] = useState<SettingsKey | null>(null);
-  const [connecting, setConnecting] = useState(false);
-  const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
-  const [disconnecting, setDisconnecting] = useState(false);
+
+  const repositoriesHref = `${navigation.pathname}?tab=repositories`;
+  const webhookUrl = buildGiteeWebhookUrl(api.getBaseUrl(), typeof window !== "undefined" ? window.location.origin : undefined);
 
   async function persistSetting(key: SettingsKey, next: boolean) {
     if (!workspace || savingKey) return;
@@ -71,37 +65,6 @@ export function GiteeTab() {
       toast.error(e instanceof Error ? e.message : t(($) => $.gitee.toast_failed));
     } finally {
       setSavingKey(null);
-    }
-  }
-
-  async function handleConnect() {
-    setConnecting(true);
-    try {
-      const resp = await api.getGiteeConnectURL(wsId);
-      if (!resp.configured || !resp.url) {
-        toast.error(t(($) => $.gitee.toast_not_configured));
-        return;
-      }
-      window.open(resp.url, "_blank", "noopener");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t(($) => $.gitee.toast_open_failed));
-    } finally {
-      setConnecting(false);
-    }
-  }
-
-  async function handleDisconnect() {
-    if (!disconnectTarget || disconnecting) return;
-    setDisconnecting(true);
-    try {
-      await api.deleteGiteeConnection(wsId, disconnectTarget);
-      await qc.invalidateQueries({ queryKey: ["gitee", wsId] });
-      toast.success(t(($) => $.gitee.toast_disconnected));
-      setDisconnectTarget(null);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t(($) => $.gitee.toast_disconnect_failed));
-    } finally {
-      setDisconnecting(false);
     }
   }
 
@@ -146,75 +109,64 @@ export function GiteeTab() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold">{t(($) => $.gitee.section_connection)}</h2>
+        <h2 className="text-sm font-semibold">{t(($) => $.gitee.section_webhook)}</h2>
         <Card>
           <CardContent className="space-y-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <GiteeMark className="h-6 w-6 mt-0.5 shrink-0" />
+            <div className="flex items-start gap-3">
+              <GiteeMark className="h-6 w-6 mt-0.5 shrink-0" />
+              <div className="space-y-3">
                 <div className="space-y-1">
-                  <p className="text-sm font-medium">{t(($) => $.gitee.connection_title)}</p>
-                  {connected ? (
-                    <p className="text-xs text-muted-foreground">
-                      {t(($) => $.gitee.connected_to, {
-                        login: connections.map((c: { gitee_login: string }) => c.gitee_login).join(", "),
-                      })}
-                    </p>
-                  ) : canManage ? (
-                    <p className="text-xs text-muted-foreground">
-                      {t(($) => $.gitee.connection_description)}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {t(($) => $.gitee.contact_admin_to_connect)}
-                    </p>
-                  )}
+                  <p className="text-sm font-medium">{t(($) => $.gitee.webhook_title)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t(($) => $.gitee.webhook_description)}
+                  </p>
                 </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t(($) => $.gitee.webhook_url_label)}
+                  </p>
+                  <code className="block rounded bg-muted px-2 py-1.5 text-xs break-all">
+                    {webhookUrl}
+                  </code>
+                </div>
+                {canManage && !configured && (
+                  <p className="text-xs text-muted-foreground">
+                    {t(($) => $.gitee.not_configured)}{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-[10px]">GITEE_WEBHOOK_SECRET</code>.
+                  </p>
+                )}
+                {canManage && configured && (
+                  <p className="text-xs text-muted-foreground">
+                    {t(($) => $.gitee.webhook_secret_hint)}
+                  </p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold">{t(($) => $.gitee.section_repositories)}</h2>
+        <Card>
+          <CardContent>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">{t(($) => $.gitee.repositories_shortcut_label)}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t(($) => $.gitee.repositories_shortcut_description)}
+                </p>
               </div>
               {canManage && (
-                <div className="flex items-center gap-2">
-                  {connected && primaryConnection ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setDisconnectTarget(primaryConnection.id)}
-                    >
-                      {t(($) => $.gitee.disconnect)}
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      onClick={handleConnect}
-                      disabled={connecting || !configured}
-                      title={
-                        !configured
-                          ? t(($) => $.gitee.connect_disabled_tooltip)
-                          : undefined
-                      }
-                    >
-                      {connecting
-                        ? t(($) => $.gitee.connect_opening)
-                        : t(($) => $.gitee.connect_gitee)}
-                    </Button>
-                  )}
-                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigation.push(repositoriesHref)}
+                >
+                  {t(($) => $.gitee.repositories_shortcut_link)}
+                </Button>
               )}
             </div>
-
-            {canManage && !configured && (
-              <p className="text-xs text-muted-foreground">
-                {t(($) => $.gitee.not_configured)}{" "}
-                <code className="rounded bg-muted px-1 py-0.5 text-[10px]">GITEE_CLIENT_ID</code>{" "}
-                {t(($) => $.gitee.not_configured_and)}{" "}
-                <code className="rounded bg-muted px-1 py-0.5 text-[10px]">GITEE_CLIENT_SECRET</code>.
-              </p>
-            )}
-
-            {!canManage && connected && (
-              <p className="text-xs text-muted-foreground">
-                {t(($) => $.gitee.read_only_hint)}
-              </p>
-            )}
           </CardContent>
         </Card>
       </section>
@@ -253,34 +205,6 @@ export function GiteeTab() {
           </CardContent>
         </Card>
       </section>
-
-      <AlertDialog
-        open={!!disconnectTarget}
-        onOpenChange={(v) => {
-          if (!v && !disconnecting) setDisconnectTarget(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t(($) => $.gitee.disconnect_confirm_title)}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(($) => $.gitee.disconnect_confirm_description)}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={disconnecting}>
-              {t(($) => $.gitee.disconnect_confirm_cancel)}
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={handleDisconnect} disabled={disconnecting}>
-              {disconnecting
-                ? t(($) => $.gitee.disconnecting)
-                : t(($) => $.gitee.disconnect_confirm_action)}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

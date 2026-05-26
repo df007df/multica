@@ -264,25 +264,10 @@ type Feedback struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
-type GiteeConnection struct {
-	ID             pgtype.UUID        `json:"id"`
-	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
-	GiteeUserID    string             `json:"gitee_user_id"`
-	GiteeLogin     string             `json:"gitee_login"`
-	GiteeAvatarUrl pgtype.Text        `json:"gitee_avatar_url"`
-	AccessToken    string             `json:"access_token"`
-	RefreshToken   pgtype.Text        `json:"refresh_token"`
-	TokenExpiresAt pgtype.Timestamptz `json:"token_expires_at"`
-	ConnectedByID  pgtype.UUID        `json:"connected_by_id"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-}
-
 type GiteePullRequest struct {
-	ID                pgtype.UUID        `json:"id"`
-	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
-	GiteeConnectionID pgtype.UUID        `json:"gitee_connection_id"`
-	RepoOwner         string             `json:"repo_owner"`
+	ID              pgtype.UUID        `json:"id"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	RepoOwner       string             `json:"repo_owner"`
 	RepoName          string             `json:"repo_name"`
 	PrNumber          int32              `json:"pr_number"`
 	Title             string             `json:"title"`
