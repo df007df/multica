@@ -1,0 +1,129 @@
+---
+title: Gitee 集成
+description: 在 gitee.com 配置统一的 WebHook 密码并为每个仓库添加钩子——PR 的分支名、标题或正文里写了 issue 编号就会自动关联，合并后 issue 转 Done。
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+在 **gitee.com 公有云**，Multica 用和 [GitHub](/github-integration) 相同的方式把 Pull Request 挂到 [issue](/issues) 上：在 **PR 源分支名**、**标题**、**正文** 里写上工作区 issue 编号（例如 `MUL-123`）。PR 会出现在 issue 详情右侧 **Pull requests** 里；**合并** PR 后，已关联的 issue 会转到 **Done**。
+
+没有 GitHub 那种「装一次 App 管全组织」的流程。你需要：在服务器设一个 secret、在每个 Gitee 仓库里手动加 WebHook、并在 Multica **Settings → Repositories** 里登记仓库 URL。
+
+## 集成做了什么
+
+| 出现位置 | 行为 |
+|---|---|
+| **Settings → Gitee** | 主开关、WebHook URL 与配置说明、跳转到 **Repositories**、PR 侧栏与 auto-link 开关 |
+| **Issue 详情 → Pull requests** | Gitee PR 与 GitHub PR 出现在同一列表（`provider: gitee`）|
+| **WebHook（后台）** | 每次合并请求钩子：upsert PR → 扫分支/标题/正文里的编号 → 写关联表 |
+| **Merge 改状态** | 与 GitHub 相同：merged → `done`（已是 `done` / `cancelled` 的不动）；只关闭不合并只更新 PR 卡片 |
+
+Multica **不会**向 Gitee 推送代码或评论，也不镜像 CI。只存 PR 元数据和基于编号的关联。
+
+## 编号怎么匹配
+
+规则与 GitHub 相同，见 [GitHub 集成 → 编号是怎么匹配的](/github-integration#编号是怎么匹配的)。Gitee 扫描字段：
+
+1. `pull_request.head.ref`（分支）
+2. `pull_request.title`
+3. `pull_request.body`
+
+## 和 GitHub 的差异
+
+| 项目 | GitHub | Gitee（gitee.com）|
+|---|---|---|
+| **连接方式** | 工作区装一次 GitHub App | **每个仓库**手动配 WebHook |
+| **路由** | webhook 里的 `installation_id` | 用 **Settings → Repositories** 里的 `gitee.com/owner/repo` URL 匹配工作区 |
+| **鉴权** | HMAC `X-Hub-Signature-256` | `X-Gitee-Token` 必须等于 `GITEE_WEBHOOK_SECRET` |
+| **事件名** | `pull_request` | `Merge Request Hook` / `merge_request_hooks`（服务端已兼容）|
+| **PR 卡片上的 CI/冲突** | 可能有 | 不展示 |
+
+<Callout type="warning">
+**务必在 Multica 登记仓库。** WebHook 已触发但侧栏没有 PR，最常见原因是 **Settings → Repositories** 里没有 `https://gitee.com/<owner>/<repo>`。Multica 无法把事件路由到工作区时会直接丢弃。
+</Callout>
+
+## Self-Host 配置
+
+### 1. 配置服务器 secret
+
+API 进程环境变量：
+
+```dotenv
+GITEE_WEBHOOK_SECRET=<长随机串，例如 openssl rand -hex 32>
+```
+
+未配置时：
+
+- **Settings → Gitee** 显示未配置；
+- `POST /api/webhooks/gitee` 返回 **`503 gitee webhooks not configured`**。
+
+改完 env 重启 API。
+
+### 2. 执行 migration
+
+表在 migration `107_gitee_integration`：
+
+```bash
+make migrate-up
+```
+
+会创建 `gitee_pull_request`、`issue_gitee_pull_request`。
+
+### 3. 在 Multica 添加仓库 URL
+
+1. 打开 **Settings → Repositories**（owner / admin）。
+2. 添加 Gitee 地址，例如 `https://gitee.com/acme/widget.git`。
+
+WebHook 靠这些 URL 判断属于哪个工作区。
+
+### 4. 在每个 Gitee 仓库配置 WebHook
+
+对每个需要关联的仓库：
+
+1. gitee.com：**仓库 → 管理 → WebHooks → 添加 WebHook**。
+2. **URL**：`https://<api-host>/api/webhooks/gitee`（**Settings → Gitee** 页也会显示）。
+3. **密码**：与 `GITEE_WEBHOOK_SECRET` 相同（请求头 `X-Gitee-Token`）。
+4. 勾选 **Pull Request** / 合并请求相关事件。
+5. 保存，可用 Gitee 的测试投递验证。
+
+### 5. 在 Multica 打开功能开关
+
+**Settings → Gitee**（admin）：
+
+- 打开 **Enable Gitee features**（若已关）；
+- 保持 **PR sidebar**、**Auto-link PRs** 开启（默认开）。
+
+### 6. 验证
+
+开或更新一个分支名/标题/正文带 issue 编号（如 `MUL-42`）的 PR，几秒内 issue 详情应出现该 Gitee PR。
+
+快速检查 token：
+
+```bash
+SECRET="<你的 GITEE_WEBHOOK_SECRET>"
+curl -i -X POST "https://<api-host>/api/webhooks/gitee" \
+  -H "X-Gitee-Token: $SECRET" \
+  -H "X-Gitee-Event: Merge Request Hook" \
+  -H "Content-Type: application/json" \
+  -d '{"hook_name":"merge_request_hooks","pull_request":{"number":1,"title":"test","state":"open","html_url":"https://gitee.com/acme/widget/pulls/1","merged":false,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","head":{"ref":"main"},"base":{"repo":{"path_with_namespace":"acme/widget"}}}}'
+```
+
+| HTTP 状态 | 含义 |
+|---|---|
+| `202 Accepted` | 密码正确；若仓库未登记，可能仍不写库 |
+| `401` | `X-Gitee-Token` 与 env 不一致 |
+| `503` | 进程未加载 `GITEE_WEBHOOK_SECRET` |
+
+## 已知限制
+
+- **每个仓库都要配 WebHook** —— 没有 GitHub App 级一键安装。
+- **暂无手动关联 UI** —— 编号必须写在分支/标题/正文。
+- **Gitee PR 卡片不显示 CI / 可合并状态**。
+- **路由只看工作区 Repositories** —— 仅挂在 [项目](/project-resources) 下的 Gitee 地址暂不参与路由，请在工作区仓库列表里也加一份。
+
+## 下一步
+
+- [GitHub 集成](/github-integration) —— GitHub.com 的 App 安装方式
+- [Issues](/issues) —— PR 引用的 issue 编号
+- [工作区](/workspaces) —— issue 前缀设置
+- [环境变量](/environment-variables) —— `GITEE_WEBHOOK_SECRET`
