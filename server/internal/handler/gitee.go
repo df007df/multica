@@ -122,59 +122,18 @@ func (h *Handler) HandleGiteeWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	event := r.Header.Get("X-Gitee-Event")
-	switch event {
-	case "ping":
+	eventHeader := r.Header.Get("X-Gitee-Event")
+	if normalizeGiteeWebhookEventName(eventHeader) == "ping" {
 		writeJSON(w, http.StatusOK, map[string]string{"ok": "pong"})
 		return
-	case "pull_request":
+	}
+	if isGiteePullRequestWebhook(eventHeader, giteeHookNameFromBody(body)) {
 		h.handleGiteePullRequestEvent(r.Context(), body)
-	case "merge_request":
-		// Gitee enterprise may use this alias
-		h.handleGiteePullRequestEvent(r.Context(), body)
-	default:
-		slog.Debug("gitee: unhandled webhook event", "event", event)
+	} else if eventHeader != "" {
+		slog.Debug("gitee: unhandled webhook event", "event", eventHeader)
 	}
 
 	w.WriteHeader(http.StatusAccepted)
-}
-
-// ── Webhook payload types ────────────────────────────────────────────────────
-
-type giteeWebhookPRPayload struct {
-	Action      string `json:"action"`
-	PullRequest struct {
-		ID           int64  `json:"id"`
-		Number       int32  `json:"number"`
-		Title        string `json:"title"`
-		Body         string `json:"body"`
-		State        string `json:"state"`
-		HTMLURL      string `json:"html_url"`
-		Merged       bool   `json:"merged"`
-		MergedAt     string `json:"merged_at"`
-		ClosedAt     string `json:"closed_at"`
-		CreatedAt    string `json:"created_at"`
-		UpdatedAt    string `json:"updated_at"`
-		Additions    int32  `json:"additions"`
-		Deletions    int32  `json:"deletions"`
-		ChangedFiles int32  `json:"changed_files"`
-		Head         struct {
-			Ref string `json:"ref"`
-		} `json:"head"`
-		Base struct {
-			Ref string `json:"ref"`
-		} `json:"base"`
-		User struct {
-			Login     string `json:"login"`
-			AvatarURL string `json:"avatar_url"`
-		} `json:"user"`
-	} `json:"pull_request"`
-	Repository struct {
-		Name  string `json:"name"`
-		Owner struct {
-			Login string `json:"login"`
-		} `json:"owner"`
-	} `json:"repository"`
 }
 
 func (h *Handler) handleGiteePullRequestEvent(ctx context.Context, body []byte) {
@@ -184,9 +143,9 @@ func (h *Handler) handleGiteePullRequestEvent(ctx context.Context, body []byte) 
 		return
 	}
 
-	repoOwner := p.Repository.Owner.Login
-	repoName := p.Repository.Name
+	repoOwner, repoName := resolveGiteeRepoFromPRPayload(p)
 	if repoOwner == "" || repoName == "" {
+		slog.Warn("gitee: pull_request payload missing repo owner/name")
 		return
 	}
 
@@ -337,6 +296,12 @@ func (h *Handler) findWorkspaceForGiteeRepo(ctx context.Context, repoOwner, repo
 //	https://gitee.com/owner/repo.git
 //	https://gitee.com/owner/repo
 //	git@gitee.com:owner/repo.git
+// enrichReposWithGiteeTokens may attach credentials to Gitee repo URLs for
+// daemon checkout. No-op until PAT/OAuth enrichment is implemented.
+func (h *Handler) enrichReposWithGiteeTokens(_ context.Context, _ string, repos []RepoData) []RepoData {
+	return repos
+}
+
 func workspaceHasGiteeRepo(repos []byte, owner, name string) bool {
 	if len(repos) == 0 {
 		return false
