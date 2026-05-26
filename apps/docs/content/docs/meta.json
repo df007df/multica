@@ -31,6 +31,7 @@
     "inbox",
     "---Integrations---",
     "github-integration",
+    "gitee-integration",
     "---Self-hosting & ops---",
     "environment-variables",
     "auth-setup",

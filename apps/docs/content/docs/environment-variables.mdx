@@ -190,6 +190,21 @@ The [GitHub PR ↔ issue integration](/github-integration) needs two variables. 
 
 **Note:** `GITHUB_WEBHOOK_SECRET` is reused as the signing key for the install-flow state token, so operators only need to manage one secret. It is **not** the GitHub App's *Client* secret — Client secrets are OAuth-related and not used by this integration. See [GitHub integration → Self-host setup](/github-integration#self-host-setup) for the full walkthrough.
 
+## Gitee integration
+
+The [Gitee PR ↔ issue integration](/gitee-integration) (gitee.com public cloud) uses a single shared secret. Each repository webhook must send the same value in `X-Gitee-Token`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `GITEE_WEBHOOK_SECRET` | empty | Password configured on each Gitee repo webhook. Must match the `X-Gitee-Token` header on every delivery |
+
+**Behavior when unset:**
+
+- **Settings → Gitee** shows a "not configured" hint.
+- `POST /api/webhooks/gitee` returns **`503 gitee webhooks not configured`**.
+
+See [Gitee integration → Self-host setup](/gitee-integration#self-host-setup) for per-repo webhook steps and repository URL registration.
+
 ## Usage analytics
 
 By default, the server reports to Multica's official PostHog instance. To opt out, set `ANALYTICS_DISABLED=true`.

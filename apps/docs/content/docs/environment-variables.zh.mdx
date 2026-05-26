@@ -190,6 +190,21 @@ Multica 存储用户上传的附件（评论里的图片、文件等）。**优�
 
 **注意：** `GITHUB_WEBHOOK_SECRET` 同时被复用为 install 流程里 state token 的签名密钥，所以运维只需要维护一个 secret。它**不是** GitHub App 的 *Client* secret——Client secret 是 OAuth 用的，和本集成无关。完整配置流程见 [GitHub 集成 → Self-Host 配置](/github-integration#self-host-配置)。
 
+## Gitee 集成
+
+[gitee.com 公有云 PR ↔ issue 集成](/gitee-integration) 使用一个全局 secret；每个仓库的 WebHook 密码都要与之一致，并通过 `X-Gitee-Token` 请求头送出。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `GITEE_WEBHOOK_SECRET` | 空 | 与各 Gitee 仓库 WebHook 上配置的密码相同，用于校验 `X-Gitee-Token` |
+
+**未配置时：**
+
+- **Settings → Gitee** 显示未配置提示；
+- `POST /api/webhooks/gitee` 返回 **`503 gitee webhooks not configured`**。
+
+逐步配置见 [Gitee 集成 → Self-Host 配置](/gitee-integration#self-host-配置)。
+
 ## 用量统计
 
 默认上报到 Multica 官方 PostHog 实例。不想上报就把 `ANALYTICS_DISABLED=true`。

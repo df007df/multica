@@ -1,0 +1,131 @@
+---
+title: Gitee integration
+description: Configure a shared webhook secret and per-repo webhooks on gitee.com — PRs whose branch, title, or body reference an issue identifier auto-attach to that issue, and merging moves the issue to Done.
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+On **gitee.com** (public cloud), Multica links pull requests to [issues](/issues) the same way as [GitHub](/github-integration): put your workspace issue identifier (for example `MUL-123`) in the **PR head branch**, **title**, or **body**. The PR appears under **Pull requests** on the issue sidebar; when the PR is **merged**, linked issues move to **Done**.
+
+There is no GitHub-style App install. You configure one server secret, add Multica's webhook URL on each Gitee repository, and list those repo URLs under **Settings → Repositories**.
+
+## What the integration does
+
+| Surface | Behavior |
+|---|---|
+| **Settings → Gitee** | Master toggle, webhook URL + setup hints, shortcuts to **Repositories**, and switches for PR sidebar and auto-link. |
+| **Issue sidebar → Pull requests** | Gitee PRs merged into the same list as GitHub PRs (`provider: gitee`). |
+| **Webhook (background)** | On each merge-request hook delivery, Multica upserts the PR row, scans branch / title / body for identifiers, and rebuilds link rows. |
+| **Auto-status on merge** | Same rule as GitHub: merged → `done` for linked issues (unless already `done` / `cancelled`); close-without-merge only updates the PR card. |
+
+Multica does **not** push to Gitee, mirror CI, or read PR comments. Only the PR record and identifier-based links are stored.
+
+## How identifiers are matched
+
+Same matcher as GitHub — see [GitHub integration → How identifiers are matched](/github-integration#how-identifiers-are-matched). Fields scanned for Gitee:
+
+1. `pull_request.head.ref` (branch)
+2. `pull_request.title`
+3. `pull_request.body`
+
+## Differences from GitHub
+
+| Topic | GitHub | Gitee (gitee.com) |
+|---|---|---|
+| **Connect** | Install GitHub App once per workspace | Manual webhook on **each** repository |
+| **Routing** | `installation_id` on the webhook | Match `owner/repo` against URLs in **Settings → Repositories** |
+| **Auth** | HMAC `X-Hub-Signature-256` | `X-Gitee-Token` must equal `GITEE_WEBHOOK_SECRET` |
+| **Event name** | `pull_request` | `Merge Request Hook` / `merge_request_hooks` (handled automatically) |
+| **CI / conflicts on PR card** | Optional check-suite data | Not shown (fields stay empty) |
+
+<Callout type="warning">
+**Register the repo in Multica.** If the webhook fires but the issue sidebar stays empty, the usual cause is a missing `https://gitee.com/<owner>/<repo>` entry under **Settings → Repositories**. Multica ignores deliveries for repos it cannot map to a workspace.
+</Callout>
+
+## Self-host setup
+
+### 1. Set the server secret
+
+On the API server:
+
+```dotenv
+GITEE_WEBHOOK_SECRET=<long random string, e.g. openssl rand -hex 32>
+```
+
+If unset:
+
+- **Settings → Gitee** shows "not configured".
+- `POST /api/webhooks/gitee` returns **`503 gitee webhooks not configured`**.
+
+Restart the API after changing env vars.
+
+### 2. Run migrations
+
+Gitee tables ship in migration `107_gitee_integration`:
+
+```bash
+make migrate-up
+```
+
+Creates `gitee_pull_request` and `issue_gitee_pull_request`.
+
+### 3. Add repository URLs in Multica
+
+1. Open **Settings → Repositories** (owner or admin).
+2. Add each Gitee repo, e.g. `https://gitee.com/acme/widget.git`.
+
+The webhook handler resolves the workspace from these URLs.
+
+### 4. Configure each Gitee repository webhook
+
+For every repo you want linked:
+
+1. On gitee.com: **仓库 → 管理 → WebHooks → 添加 WebHook**.
+2. **URL**: `https://<api-host>/api/webhooks/gitee` (also shown on **Settings → Gitee**).
+3. **密码**: the same value as `GITEE_WEBHOOK_SECRET` (sent as `X-Gitee-Token`).
+4. Enable **Pull Request** / merge-request events.
+5. Save and use Gitee's test delivery if available.
+
+Copy the URL from **Settings → Gitee** when unsure — it uses your configured API base URL.
+
+### 5. Enable features in Multica
+
+On **Settings → Gitee** (admin):
+
+- Turn on **Enable Gitee features** if it was off.
+- Keep **PR sidebar** and **Auto-link PRs** enabled (default on).
+
+### 6. Verify
+
+Open or update a PR whose branch, title, or body includes an issue identifier (e.g. `MUL-42`). Within a few seconds the **Pull requests** block on that issue should list the Gitee PR.
+
+Quick token check:
+
+```bash
+SECRET="<your GITEE_WEBHOOK_SECRET>"
+curl -i -X POST "https://<api-host>/api/webhooks/gitee" \
+  -H "X-Gitee-Token: $SECRET" \
+  -H "X-Gitee-Event: Merge Request Hook" \
+  -H "Content-Type: application/json" \
+  -d '{"hook_name":"merge_request_hooks","pull_request":{"number":1,"title":"test","state":"open","html_url":"https://gitee.com/acme/widget/pulls/1","merged":false,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","head":{"ref":"main"},"base":{"repo":{"path_with_namespace":"acme/widget"}}}}'
+```
+
+| HTTP status | Meaning |
+|---|---|
+| `202 Accepted` | Secret OK; body may still be ignored if repo is not registered in the workspace. |
+| `401` | `X-Gitee-Token` does not match `GITEE_WEBHOOK_SECRET`. |
+| `503` | `GITEE_WEBHOOK_SECRET` not loaded in the API process. |
+
+## Limitations
+
+- **Per-repo webhook setup** — no org-wide install like a GitHub App.
+- **No manual link UI** — identifiers must appear in branch, title, or body.
+- **No CI / mergeable state** on PR cards for Gitee.
+- **Project-only repo URLs** — only **workspace** repository list is used for routing today; attach Gitee URLs there even if the code lives under a [project](/project-resources).
+
+## Next
+
+- [GitHub integration](/github-integration) — App-based setup on GitHub.com
+- [Issues](/issues) — issue identifiers referenced from PRs
+- [Workspaces](/workspaces) — issue prefix configuration
+- [Environment variables](/environment-variables) — `GITEE_WEBHOOK_SECRET`
