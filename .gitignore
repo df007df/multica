@@ -4,6 +4,10 @@ dist
 .DS_Store
 .envrc
 
+# Next.js auto-generates these; the routes import path flips between dev and build.
+apps/web/next-env.d.ts
+apps/docs/next-env.d.ts
+
 # build outputs
 .turbo
 .next
