@@ -299,9 +299,22 @@ function ActiveRow({ task, issueId }: { task: AgentTask; issueId: string }) {
     setConfirmOpen(true);
   };
 
+  // Short task ID for display (first 8 chars + ellipsis if longer)
+  const shortTaskId = task.id.length > 8 ? task.id.slice(0, 8) + "…" : task.id;
+
   return (
     <RowShell task={task}>
-      <TriggerText text={trigger} />
+      <div className="min-w-0 flex-1">
+        <TriggerText text={trigger} />
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="font-mono text-[10px] text-muted-foreground">{shortTaskId}</span>
+          {task.work_dir && (
+            <span className="text-[10px] text-muted-foreground truncate max-w-[150px]" title={task.work_dir}>
+              {task.work_dir}
+            </span>
+          )}
+        </div>
+      </div>
       {/* Status + time always visible — actions append on hover, never
           replace. Same pattern as desktop tab bar / sidebar pins. */}
       <span className="shrink-0 whitespace-nowrap text-xs">
@@ -389,9 +402,22 @@ function PastRow({ task, issueId }: { task: AgentTask; issueId: string }) {
     }
   };
 
+  // Short task ID for display (first 8 chars + ellipsis if longer)
+  const shortTaskId = task.id.length > 8 ? task.id.slice(0, 8) + "…" : task.id;
+
   return (
     <RowShell task={task}>
-      <TriggerText text={trigger} />
+      <div className="min-w-0 flex-1">
+        <TriggerText text={trigger} />
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="font-mono text-[10px] text-muted-foreground">{shortTaskId}</span>
+          {task.work_dir && (
+            <span className="text-[10px] text-muted-foreground truncate max-w-[150px]" title={task.work_dir}>
+              {task.work_dir}
+            </span>
+          )}
+        </div>
+      </div>
       <span className="shrink-0 whitespace-nowrap text-xs">
         <span className={tone}>{failureLabel ?? label}</span>
         <span className="text-muted-foreground"> · {time}</span>
