@@ -338,7 +338,9 @@
     "status_running": "Working",
     "status_completed": "Completed",
     "status_failed": "Failed",
-    "status_cancelled": "Cancelled"
+    "status_cancelled": "Cancelled",
+    "task_id_label": "Task ID",
+    "work_dir_label": "Work directory"
   },
   "terminate_dialog": {
     "title": "Stop this task?",

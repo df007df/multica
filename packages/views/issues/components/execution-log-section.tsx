@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Loader2, RotateCcw, Square } from "lucide-react";
+import { ChevronRight, Folder, Loader2, RotateCcw, Square } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
 import { issueKeys } from "@multica/core/issues/queries";
@@ -430,7 +430,35 @@ function RowShell({
       ) : (
         <span className="inline-block h-5 w-5 shrink-0 rounded-full bg-muted" />
       )}
+      <TaskMetaInfo task={task} />
       {children}
+    </div>
+  );
+}
+
+// Task ID + work dir metadata shown between avatar and trigger text.
+function TaskMetaInfo({ task }: { task: AgentTask }) {
+  const shortId = task.id.length >= 8 ? task.id.slice(0, 8) : task.id;
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <span className="font-mono text-xs text-muted-foreground/60">#{shortId}</span>
+      {task.work_dir && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                onClick={() => void navigator.clipboard.writeText(task.work_dir!)}
+                className="flex items-center justify-center rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent/50 hover:text-muted-foreground"
+                title={task.work_dir}
+              >
+                <Folder className="h-3 w-3" />
+              </button>
+            }
+          />
+          <TooltipContent>{task.work_dir}</TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 }

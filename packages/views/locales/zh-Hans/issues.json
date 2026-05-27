@@ -331,7 +331,9 @@
     "status_running": "处理中",
     "status_completed": "已完成",
     "status_failed": "失败",
-    "status_cancelled": "已取消"
+    "status_cancelled": "已取消",
+    "task_id_label": "任务 ID",
+    "work_dir_label": "工作目录"
   },
   "terminate_dialog": {
     "title": "确定停止该 task？",
