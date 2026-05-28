@@ -23,17 +23,12 @@ interface AvatarPickerProps {
   size?: number;
 }
 
+type Mode = "upload" | "generate";
+
 /**
- * Compact avatar picker — a single square that lives next to the Name
- * input in the create-agent form. Mirrors the visual language of
- * agent-detail-inspector.tsx (Camera overlay on hover, file input behind
- * the scenes), so users who've configured an avatar elsewhere in the app
- * recognise the affordance immediately.
- *
- * No avatar yet → dashed placeholder with an ImagePlus icon.
- * Has avatar    → image fills the square, hover dims it with a Camera
- *                 overlay for "click to change". A small × in the corner
- *                 clears the choice.
+ * Compact avatar picker with upload/generate tab switch.
+ * - Upload mode: file input → upload to server → URL stored
+ * - Generate mode: react-nice-avatar → canvas → blob → upload → URL stored
  */
 type Mode = "upload" | "generate";
 
