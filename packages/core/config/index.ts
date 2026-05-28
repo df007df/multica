@@ -6,8 +6,17 @@ interface ConfigState {
   allowSignup: boolean;
   googleClientId: string;
   dingtalkClientId: string;
+  // Self-host gate (#3433): when true, every "Create workspace" affordance
+  // must be hidden. Defaults to false so unknown / older servers behave like
+  // the managed-cloud case.
+  workspaceCreationDisabled: boolean;
   setCdnDomain: (domain: string) => void;
-  setAuthConfig: (config: { allowSignup: boolean; googleClientId?: string; dingtalkClientId?: string }) => void;
+  setAuthConfig: (config: {
+    allowSignup: boolean;
+    googleClientId?: string;
+    dingtalkClientId?: string;
+    workspaceCreationDisabled?: boolean;
+  }) => void;
 }
 
 export const configStore = createStore<ConfigState>((set) => ({
@@ -15,9 +24,10 @@ export const configStore = createStore<ConfigState>((set) => ({
   allowSignup: true,
   googleClientId: "",
   dingtalkClientId: "",
+  workspaceCreationDisabled: false,
   setCdnDomain: (domain) => set({ cdnDomain: domain }),
-  setAuthConfig: ({ allowSignup, googleClientId = "", dingtalkClientId = "" }) =>
-    set({ allowSignup, googleClientId, dingtalkClientId }),
+  setAuthConfig: ({ allowSignup, googleClientId = "", dingtalkClientId = "", workspaceCreationDisabled = false }) =>
+    set({ allowSignup, googleClientId, dingtalkClientId, workspaceCreationDisabled })
 }));
 
 export function useConfigStore(): ConfigState;

@@ -15,6 +15,12 @@ type AppConfig struct {
 	AllowSignup       bool   `json:"allow_signup"`
 	GoogleClientID    string `json:"google_client_id,omitempty"`
 	DingTalkClientID  string `json:"dingtalk_client_id,omitempty"`
+	// WorkspaceCreationDisabled mirrors the server-side
+	// DISABLE_WORKSPACE_CREATION env var so the UI can hide every
+	// "Create workspace" affordance on self-hosted instances. Omitted
+	// from the JSON when false to keep responses identical to the
+	// previous shape for the common managed-cloud case (#3433).
+	WorkspaceCreationDisabled bool `json:"workspace_creation_disabled,omitempty"`
 
 	// GitHub App enabled (true when both GITHUB_APP_SLUG and GITHUB_WEBHOOK_SECRET are set).
 	GitHubEnabled bool `json:"github_enabled"`
@@ -41,12 +47,13 @@ type AppConfig struct {
 // to anonymous callers — never user- or tenant-scoped data.
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	config := AppConfig{
-		AllowSignup:      os.Getenv("ALLOW_SIGNUP") != "false",
-		GoogleClientID:   os.Getenv("GOOGLE_CLIENT_ID"),
-		DingTalkClientID: os.Getenv("DINGTALK_CLIENT_ID"),
-		GitHubEnabled:    os.Getenv("GITHUB_APP_SLUG") != "" && os.Getenv("GITHUB_WEBHOOK_SECRET") != "",
-		GiteeEnabled:        os.Getenv("GITEE_WEBHOOK_SECRET") != "",
-		GiteeOAuthConfigured: os.Getenv("GITEE_CLIENT_ID") != "" && os.Getenv("GITEE_CLIENT_SECRET") != "",
+		AllowSignup:               os.Getenv("ALLOW_SIGNUP") != "false",
+		GoogleClientID:            os.Getenv("GOOGLE_CLIENT_ID"),
+		DingTalkClientID:          os.Getenv("DINGTALK_CLIENT_ID"),
+		WorkspaceCreationDisabled: os.Getenv("DISABLE_WORKSPACE_CREATION") == "true",
+		GitHubEnabled:             os.Getenv("GITHUB_APP_SLUG") != "" && os.Getenv("GITHUB_WEBHOOK_SECRET") != "",
+		GiteeEnabled:              os.Getenv("GITEE_WEBHOOK_SECRET") != "",
+		GiteeOAuthConfigured:      os.Getenv("GITEE_CLIENT_ID") != "" && os.Getenv("GITEE_CLIENT_SECRET") != "",
 	}
 	if h.Storage != nil {
 		config.CdnDomain = h.Storage.CdnDomain()
