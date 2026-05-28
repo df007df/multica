@@ -301,7 +301,7 @@
     }
   },
   "gitee": {
-    "page_description": "配置 Gitee webhook，控制 Pull Request 在 Multica 中的展示方式，并管理 Gitee webhook 功能。",
+    "page_description": "通过 OAuth 连接 Gitee 账户，配置 Webhook，控制 Pull Request 在 Multica 中的显示方式，并决定启用哪些 Gitee Webhook 功能。",
     "section_master": "启用 Gitee 功能",
     "master_description_on": "关闭后，所有 Gitee UI 功能将被隐藏，不会产生新的副作用。后端保留已有数据。",
     "master_description_off": "Gitee 功能已关闭。PR 侧边栏和自动关联已暂停。后端数据不会被删除。",
@@ -320,6 +320,26 @@
     "feature_pr_sidebar_label": "Pull Request 侧边栏",
     "feature_pr_sidebar_description": "在 Issue 详情侧边栏中显示关联的 Pull Request。",
     "feature_auto_link_label": "自动关联 Issue 和 PR",
-    "feature_auto_link_description": "自动匹配 PR 标题、正文和分支名称中的 Issue 标识符并创建关联。"
+    "feature_auto_link_description": "自动匹配 PR 标题、正文和分支名称中的 Issue 标识符并创建关联。",
+    "section_connection": "连接",
+    "connection_title": "Gitee OAuth",
+    "connection_description": "连接 Gitee 账户，让智能体能够克隆私有 Gitee 仓库。工作区中的第一个已连接账户的令牌将用于所有智能体。",
+    "connected_to": "已连接为 {{login}}",
+    "connect_gitee": "连接 Gitee",
+    "connect_opening": "正在打开…",
+    "connect_disabled_tooltip": "此服务器未配置 Gitee OAuth",
+    "disconnect": "断开连接",
+    "disconnecting": "正在断开…",
+    "disconnect_confirm_title": "断开 Gitee 连接",
+    "disconnect_confirm_description": "此工作区中的智能体将无法再克隆私有 Gitee 仓库。现有的 PR 镜像和链接将保留；随时重新连接即可恢复。",
+    "disconnect_confirm_cancel": "取消",
+    "disconnect_confirm_action": "断开连接",
+    "not_configured_and": "和",
+    "read_only_hint": "只读视图。只有工作区管理员和拥有者可以连接或断开 Gitee。",
+    "contact_admin_to_connect": "此工作区尚未连接 Gitee。请联系管理员或拥有者连接其 Gitee 账户。",
+    "toast_not_configured": "此部署未配置 Gitee 集成",
+    "toast_open_failed": "打开 Gitee 授权失败",
+    "toast_disconnect_failed": "断开 Gitee 连接失败",
+    "toast_disconnected": "Gitee 已断开连接"
   }
 }

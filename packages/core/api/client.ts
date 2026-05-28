@@ -98,6 +98,8 @@ import type {
   GitHubPullRequest,
   ListGitHubInstallationsResponse,
   GitHubConnectResponse,
+  GiteeConnectResponse,
+  ListGiteeConnectionsResponse,
   Squad,
   SquadMember,
   SquadMemberStatusListResponse,
@@ -319,6 +321,7 @@ export class ApiClient {
       ...init,
       headers,
       credentials: "include",
+      cache: "no-store",
     });
 
     if (!res.ok) {
@@ -1181,6 +1184,7 @@ export class ApiClient {
     google_client_id?: string;
     dingtalk_client_id?: string;
     gitee_enabled?: boolean;
+    gitee_oauth_configured?: boolean;
     posthog_key?: string;
     posthog_host?: string;
     analytics_environment?: string;
@@ -1822,6 +1826,21 @@ export class ApiClient {
 
   async deleteGitHubInstallation(workspaceId: string, installationId: string): Promise<void> {
     await this.fetch(`/api/workspaces/${workspaceId}/github/installations/${installationId}`, {
+      method: "DELETE",
+    });
+  }
+
+  // Gitee integration
+  async getGiteeConnectURL(workspaceId: string): Promise<GiteeConnectResponse> {
+    return this.fetch(`/api/workspaces/${workspaceId}/gitee/connect`);
+  }
+
+  async listGiteeConnections(workspaceId: string): Promise<ListGiteeConnectionsResponse> {
+    return this.fetch(`/api/workspaces/${workspaceId}/gitee/connections`);
+  }
+
+  async deleteGiteeConnection(workspaceId: string, connectionId: string): Promise<void> {
+    await this.fetch(`/api/workspaces/${workspaceId}/gitee/connections/${connectionId}`, {
       method: "DELETE",
     });
   }

@@ -75,6 +75,8 @@ export type WSEventType =
   | "invitation:revoked"
   | "github_installation:created"
   | "github_installation:deleted"
+  | "gitee_connection:created"
+  | "gitee_connection:deleted"
   | "pull_request:linked"
   | "pull_request:updated"
   | "pull_request:unlinked";
@@ -433,6 +435,8 @@ export interface WSEventPayloadMap {
   "pin:reordered": unknown;
   "github_installation:created": unknown;
   "github_installation:deleted": unknown;
+  "gitee_connection:created": unknown;
+  "gitee_connection:deleted": unknown;
   "pull_request:linked": unknown;
   "pull_request:updated": unknown;
   "pull_request:unlinked": unknown;

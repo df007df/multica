@@ -22,6 +22,9 @@ type AppConfig struct {
 	// Gitee webhook integration enabled (true when GITEE_WEBHOOK_SECRET is set).
 	GiteeEnabled bool `json:"gitee_enabled"`
 
+	// Gitee OAuth configured (true when GITEE_CLIENT_ID and GITEE_CLIENT_SECRET are set).
+	GiteeOAuthConfigured bool `json:"gitee_oauth_configured"`
+
 	// PostHog public config for the frontend. The key is the same Project
 	// API Key the backend uses; returning it here (instead of baking it
 	// into the frontend bundle via NEXT_PUBLIC_*) means self-hosted
@@ -42,7 +45,8 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		GoogleClientID:   os.Getenv("GOOGLE_CLIENT_ID"),
 		DingTalkClientID: os.Getenv("DINGTALK_CLIENT_ID"),
 		GitHubEnabled:    os.Getenv("GITHUB_APP_SLUG") != "" && os.Getenv("GITHUB_WEBHOOK_SECRET") != "",
-		GiteeEnabled:     os.Getenv("GITEE_WEBHOOK_SECRET") != "",
+		GiteeEnabled:        os.Getenv("GITEE_WEBHOOK_SECRET") != "",
+		GiteeOAuthConfigured: os.Getenv("GITEE_CLIENT_ID") != "" && os.Getenv("GITEE_CLIENT_SECRET") != "",
 	}
 	if h.Storage != nil {
 		config.CdnDomain = h.Storage.CdnDomain()

@@ -268,7 +268,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// Gitee webhook (no Multica auth — requests are authenticated via
 	// X-Gitee-Token header in the handler).
 	r.Post("/api/webhooks/gitee", h.HandleGiteeWebhook)
-
+	r.Get("/api/gitee/setup", h.GiteeSetupCallback)
 	// Daemon API routes (require daemon token or valid user token)
 	r.Route("/api/daemon", func(r chi.Router) {
 		r.Use(middleware.DaemonAuth(queries, patCache, daemonTokenCache))
@@ -343,6 +343,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// the handler strips the management handle and adds a
 					// can_manage hint so the UI can gate connect/disconnect.
 					r.Get("/github/installations", h.ListGitHubInstallations)
+					r.Get("/gitee/connections", h.ListGiteeConnections)
 				})
 				// Admin-level access
 				r.Group(func(r chi.Router) {
@@ -367,6 +368,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Use(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner", "admin"))
 					r.Get("/github/connect", h.GitHubConnect)
 					r.Delete("/github/installations/{installationId}", h.DeleteGitHubInstallation)
+					r.Get("/gitee/connect", h.GiteeConnect)
+					r.Delete("/gitee/connections/{connectionId}", h.DeleteGiteeConnection)
 				})
 			})
 		})

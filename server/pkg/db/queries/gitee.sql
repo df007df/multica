@@ -1,4 +1,50 @@
 -- =====================
+-- Gitee OAuth Connection
+-- =====================
+
+-- name: ListGiteeConnectionsByWorkspace :many
+SELECT * FROM gitee_connection
+WHERE workspace_id = $1
+ORDER BY created_at ASC;
+
+-- name: GetGiteeConnectionByWorkspaceAndUserID :one
+SELECT * FROM gitee_connection
+WHERE workspace_id = $1 AND gitee_user_id = $2;
+
+-- name: GetGiteeConnectionByID :one
+SELECT * FROM gitee_connection
+WHERE id = $1;
+
+-- name: CreateGiteeConnection :one
+INSERT INTO gitee_connection (
+    workspace_id, gitee_user_id, gitee_login, gitee_avatar_url,
+    access_token, refresh_token, token_expires_at, connected_by_id
+) VALUES (
+    $1, $2, $3, sqlc.narg('gitee_avatar_url'),
+    $4, sqlc.narg('refresh_token'), sqlc.narg('token_expires_at'),
+    sqlc.narg('connected_by_id')
+)
+ON CONFLICT (workspace_id, gitee_user_id) DO UPDATE SET
+    gitee_login = EXCLUDED.gitee_login,
+    gitee_avatar_url = EXCLUDED.gitee_avatar_url,
+    access_token = EXCLUDED.access_token,
+    refresh_token = EXCLUDED.refresh_token,
+    token_expires_at = EXCLUDED.token_expires_at,
+    updated_at = now()
+RETURNING *;
+
+-- name: DeleteGiteeConnection :exec
+DELETE FROM gitee_connection WHERE id = $1 AND workspace_id = $2;
+
+-- name: DeleteGiteeConnectionByWorkspaceAndUserID :one
+DELETE FROM gitee_connection
+WHERE workspace_id = $1 AND gitee_user_id = $2
+RETURNING id, workspace_id;
+
+-- name: ListAllGiteeConnections :many
+SELECT * FROM gitee_connection;
+
+-- =====================
 -- Gitee Pull Request
 -- =====================
 

@@ -8,11 +8,21 @@ import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Label } from "@multica/ui/components/ui/label";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { Button } from "@multica/ui/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@multica/ui/components/ui/alert-dialog";
 import { useAuthStore } from "@multica/core/auth";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import { memberListOptions, workspaceKeys } from "@multica/core/workspace/queries";
-import { deriveGiteeSettings, buildGiteeWebhookUrl } from "@multica/core/gitee";
+import { deriveGiteeSettings, buildGiteeWebhookUrl, giteeConnectionsOptions } from "@multica/core/gitee";
 import { api } from "@multica/core/api";
 import type { Workspace } from "@multica/core/types";
 import { useNavigation } from "../../navigation";
@@ -42,9 +52,16 @@ export function GiteeTab() {
     staleTime: 60_000,
   });
   const configured = appConfig?.gitee_enabled === true;
+  const oauthConfigured = appConfig?.gitee_oauth_configured === true;
+
+  const { data: connectionData } = useQuery(giteeConnectionsOptions(wsId));
+  const connections = connectionData?.connections ?? [];
 
   const flags = deriveGiteeSettings(workspace);
   const [savingKey, setSavingKey] = useState<SettingsKey | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+  const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
 
   const repositoriesHref = `${navigation.pathname}?tab=repositories`;
   const webhookUrl = buildGiteeWebhookUrl(api.getBaseUrl(), typeof window !== "undefined" ? window.location.origin : undefined);
@@ -65,6 +82,40 @@ export function GiteeTab() {
       toast.error(e instanceof Error ? e.message : t(($) => $.gitee.toast_failed));
     } finally {
       setSavingKey(null);
+    }
+  }
+
+  async function handleConnect() {
+    if (!wsId || connecting) return;
+    setConnecting(true);
+    try {
+      const resp = await api.getGiteeConnectURL(wsId);
+      if (!resp.configured) {
+        toast.error(t(($) => $.gitee.toast_not_configured));
+        return;
+      }
+      if (resp.url) {
+        window.open(resp.url, "_blank", "noopener");
+      }
+    } catch {
+      toast.error(t(($) => $.gitee.toast_open_failed));
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    if (!wsId || !disconnectTarget || disconnectingId) return;
+    setDisconnectingId(disconnectTarget);
+    try {
+      await api.deleteGiteeConnection(wsId, disconnectTarget);
+      qc.invalidateQueries({ queryKey: giteeConnectionsOptions(wsId).queryKey });
+      toast.success(t(($) => $.gitee.toast_disconnected));
+    } catch {
+      toast.error(t(($) => $.gitee.toast_disconnect_failed));
+    } finally {
+      setDisconnectingId(null);
+      setDisconnectTarget(null);
     }
   }
 
@@ -103,6 +154,87 @@ export function GiteeTab() {
                 onCheckedChange={(v) => persistSetting("gitee_enabled", v)}
                 disabled={!canManage || savingKey === "gitee_enabled"}
               />
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold">{t(($) => $.gitee.section_connection)}</h2>
+        <Card>
+          <CardContent className="space-y-4">
+            <div className="flex items-start gap-3">
+              <GiteeMark className="h-6 w-6 mt-0.5 shrink-0" />
+              <div className="space-y-3 flex-1">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">{t(($) => $.gitee.connection_title)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t(($) => $.gitee.connection_description)}
+                  </p>
+                </div>
+
+                {connections.length > 0 ? (
+                  <div className="space-y-2">
+                    {connections.map((c) => (
+                      <div key={c.id} className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          {c.gitee_avatar_url && (
+                            <img
+                              src={c.gitee_avatar_url}
+                              alt=""
+                              className="h-5 w-5 rounded-full"
+                            />
+                          )}
+                          <span className="text-sm">
+                            {t(($) => $.gitee.connected_to, { login: c.gitee_login })}
+                          </span>
+                        </div>
+                        {canManage && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={disconnectingId === c.id}
+                            onClick={() => setDisconnectTarget(c.id)}
+                          >
+                            {disconnectingId === c.id
+                              ? t(($) => $.gitee.disconnecting)
+                              : t(($) => $.gitee.disconnect)}
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : canManage ? (
+                  <div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!oauthConfigured || connecting}
+                      onClick={handleConnect}
+                      title={!oauthConfigured ? t(($) => $.gitee.connect_disabled_tooltip) : undefined}
+                    >
+                      {connecting ? t(($) => $.gitee.connect_opening) : t(($) => $.gitee.connect_gitee)}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {t(($) => $.gitee.contact_admin_to_connect)}
+                  </p>
+                )}
+
+                {canManage && !oauthConfigured && (
+                  <p className="text-xs text-muted-foreground">
+                    {t(($) => $.gitee.not_configured)}{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-[10px]">GITEE_CLIENT_ID</code>{" "}
+                    {t(($) => $.gitee.not_configured_and)}{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-[10px]">GITEE_CLIENT_SECRET</code>.
+                  </p>
+                )}
+
+                {!canManage && (
+                  <p className="text-xs text-muted-foreground">{t(($) => $.gitee.read_only_hint)}</p>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -205,6 +337,23 @@ export function GiteeTab() {
           </CardContent>
         </Card>
       </section>
+
+      <AlertDialog open={!!disconnectTarget} onOpenChange={(open) => !open && setDisconnectTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t(($) => $.gitee.disconnect_confirm_title)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(($) => $.gitee.disconnect_confirm_description)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t(($) => $.gitee.disconnect_confirm_cancel)}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDisconnect}>
+              {t(($) => $.gitee.disconnect_confirm_action)}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
