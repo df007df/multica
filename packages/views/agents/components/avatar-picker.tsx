@@ -30,6 +30,13 @@ type Mode = "upload" | "generate";
  * - Upload mode: file input → upload to server → URL stored
  * - Generate mode: react-nice-avatar → canvas → blob → upload → URL stored
  */
+type Mode = "upload" | "generate";
+
+/**
+ * Compact avatar picker with upload/generate tab switch.
+ * - Upload mode: file input → upload to server → URL stored
+ * - Generate mode: react-nice-avatar → canvas → blob → upload → URL stored
+ */
 export function AvatarPicker({ value, onChange, size = 56 }: AvatarPickerProps) {
   const { t } = useT("agents");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -113,7 +120,7 @@ export function AvatarPicker({ value, onChange, size = 56 }: AvatarPickerProps) 
           )}
         >
           <ImagePlus className="h-3 w-3" />
-          {t(($) => $.create_dialog.avatar.tab_upload ?? "上传")}
+          {t(($) => $.create_dialog.avatar.tab_upload ?? "Upload")}
         </button>
         <button
           type="button"
@@ -126,7 +133,7 @@ export function AvatarPicker({ value, onChange, size = 56 }: AvatarPickerProps) 
           )}
         >
           <RefreshCw className="h-3 w-3" />
-          {t(($) => $.create_dialog.avatar.tab_generate ?? "生成")}
+          {t(($) => $.create_dialog.avatar.tab_generate ?? "Generate")}
         </button>
       </div>
 
