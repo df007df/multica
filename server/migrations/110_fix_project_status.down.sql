@@ -1,0 +1,1 @@
+-- No reversal needed — invalid statuses are corrected to their closest valid equivalent.

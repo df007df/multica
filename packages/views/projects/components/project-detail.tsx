@@ -424,7 +424,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   }
 
   const issueMetrics = getProjectIssueMetrics(project);
-  const statusCfg = PROJECT_STATUS_CONFIG[project.status];
+  const statusCfg = PROJECT_STATUS_CONFIG[project.status] ?? PROJECT_STATUS_CONFIG.planned;
 
   const sidebarContent = (
     <div className="space-y-5">

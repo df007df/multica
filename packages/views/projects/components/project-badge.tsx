@@ -20,7 +20,7 @@ import { useProjectStatusLabels, useProjectPriorityLabels } from "./labels";
 
 export function ProjectStatusBadge({ project, handleUpdate, triggerClassName, align = "end" }: { project: Project; handleUpdate: (data: UpdateProjectRequest) => void; triggerClassName?: string; align?: "start" | "end" | "center" }) {
   const statusLabels = useProjectStatusLabels();
-  const statusCfg = PROJECT_STATUS_CONFIG[project.status];
+  const statusCfg = PROJECT_STATUS_CONFIG[project.status] ?? PROJECT_STATUS_CONFIG.planned;
 
   return (
     <DropdownMenu>
@@ -50,7 +50,7 @@ export function ProjectStatusBadge({ project, handleUpdate, triggerClassName, al
 
 export function ProjectPriorityBadge({ project, handleUpdate, triggerClassName, align = "end" }: { project: Project; handleUpdate: (data: UpdateProjectRequest) => void; triggerClassName?: string; align?: "start" | "end" | "center" }) {
   const priorityLabels = useProjectPriorityLabels();
-  const priorityCfg = PROJECT_PRIORITY_CONFIG[project.priority];
+  const priorityCfg = PROJECT_PRIORITY_CONFIG[project.priority] ?? PROJECT_PRIORITY_CONFIG.none;
 
   return (
     <DropdownMenu>
