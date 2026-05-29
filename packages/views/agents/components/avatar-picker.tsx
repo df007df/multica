@@ -44,6 +44,13 @@ type Mode = "upload" | "generate";
  * - Upload mode: file input → upload to server → URL stored
  * - Generate mode: react-nice-avatar → canvas → blob → upload → URL stored
  */
+type Mode = "upload" | "generate";
+
+/**
+ * Compact avatar picker with upload/generate tab switch.
+ * - Upload mode: file input → upload to server → URL stored
+ * - Generate mode: react-nice-avatar → canvas → blob → upload → URL stored
+ */
 export function AvatarPicker({ value, onChange, size = 56 }: AvatarPickerProps) {
   const { t } = useT("agents");
   const fileInputRef = useRef<HTMLInputElement>(null);
