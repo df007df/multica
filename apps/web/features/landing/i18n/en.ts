@@ -293,6 +293,55 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     },
     entries: [
       {
+        version: "0.3.12",
+        date: "2026-05-29",
+        title: "Issue Session Resume and Korean Support",
+        changes: [],
+        features: [
+          "Agents that continue work from an Issue comment now resume the previous session instead of starting over, keeping the task context intact",
+          "Multica now supports Korean across the app, public site, and documentation, including Korean docs pages and localized date formatting",
+          "Issue pages now keep active agent work visible near the title, with a cleaner view when multiple agents are working at once",
+          "Agents can scan Issue discussions faster with thread previews, reply counts, and recent activity before opening the full conversation",
+          "OpenClaw runtimes can use the MCP setup saved on an agent, and Claude Opus 4.8 is available in model selection and usage estimates",
+        ],
+        improvements: [
+          "Detail pages now share clearer breadcrumb headers, making Issues, projects, runtimes, skills, agents, and squads feel more consistent",
+          "Resumed agent tasks spend less time re-reading comments they already have, so follow-up work returns to the right discussion faster",
+          "Issue mention guidance and CLI command snippets are easier to read and safer to copy",
+        ],
+        fixes: [
+          "Agent skills stay visible after updates, archive, restore, template creation, and environment changes",
+          "Parent Issues assigned to a single agent continue when that agent completes a child Issue",
+          "Desktop now groups WSL2 local runtimes under the local machine when they belong to the current user",
+          "CLI login now accepts Cloud Node tokens",
+        ],
+      },
+      {
+        version: "0.3.11",
+        date: "2026-05-28",
+        title: "Antigravity CLI Support",
+        changes: [],
+        features: [
+          "Antigravity CLI is now a supported coding runtime",
+          "Agent settings now include MCP configuration for Hermes, Kimi, and Kiro",
+          "Self-hosted admins can turn off self-service workspace creation",
+          "Desktop local runtimes can renew access tokens before they expire",
+        ],
+        improvements: [
+          "Helm charts can be published to GHCR, and email setup docs are clearer",
+          "Task transcripts show shorter, safer working-folder labels",
+          "New Issues stay at the top in manual boards, and deleted Issues stay out of recents",
+          "Local runtime machines are grouped by device name",
+        ],
+        fixes: [
+          "Terminal task completion retries brief callback failures",
+          "Local-directory runs preserve existing CLAUDE.md, AGENTS.md, and GEMINI.md files",
+          "Windows Pi runs keep multi-line prompts intact",
+          "Provider logos render consistently",
+          "Daemon cleanup skips incomplete parent-task metadata",
+        ],
+      },
+      {
         version: "0.3.10",
         date: "2026-05-27",
         title: "Local Working Directories",
